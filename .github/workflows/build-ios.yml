@@ -1,0 +1,396 @@
+name: Build iOS IPA
+
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - release
+  pull_request:
+    branches:
+      - main
+      - master
+      - release
+  workflow_dispatch:
+
+
+jobs:
+  build-ios:
+    name: Build Unsigned IPA
+    runs-on: macos-latest
+
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+
+      - name: Install dependencies
+        run: npm ci
+
+
+      - name: Generate iOS project
+        run: npx expo prebuild --platform ios --clean
+
+
+      - name: Setup CocoaPods
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.1'
+          bundler-cache: true
+
+
+      - name: Install CocoaPods dependencies
+        working-directory: ios
+        run: |
+          pod install --repo-update
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.4.0'
+
+
+      - name: Get app info from app.json
+        id: app-info
+        run: |
+          SLUG=$(node -p "require('./app.json').expo.slug" | tr -d '"')
+          APP_NAME=$(node -p "require('./app.json').expo.name" | tr -d '"')
+          # Convert app name to potential scheme name (remove spaces, keep capitalization)
+          APP_NAME_SCHEME=$(echo "$APP_NAME" | sed 's/ //g')
+          echo "scheme_name=$SLUG" >> $GITHUB_OUTPUT
+          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
+          echo "app_name_scheme=$APP_NAME_SCHEME" >> $GITHUB_OUTPUT
+          echo "binary_name=$SLUG" >> $GITHUB_OUTPUT
+      - name: Verify iOS project structure
+        id: verify-project
+        working-directory: ios
+        run: |
+          echo "Listing iOS directory contents:"
+          ls -la
+          echo ""
+          
+          SCHEME_NAME="${{ steps.app-info.outputs.scheme_name }}"
+          EXPECTED_WORKSPACE="${SCHEME_NAME}.xcworkspace"
+          EXPECTED_PROJECT="${SCHEME_NAME}.xcodeproj"
+          
+          # First check for expected workspace
+          if [ -d "$EXPECTED_WORKSPACE" ]; then
+            echo "Found expected workspace: $EXPECTED_WORKSPACE"
+            echo "build_target=$EXPECTED_WORKSPACE" >> $GITHUB_OUTPUT
+            echo "build_type=workspace" >> $GITHUB_OUTPUT
+          # Then check for any workspace
+          elif WORKSPACE=$(find . -maxdepth 1 -name "*.xcworkspace" -type d | head -n 1); then
+            echo "Found workspace: $WORKSPACE"
+            # Remove leading ./ if present
+            WORKSPACE=$(echo "$WORKSPACE" | sed 's|^\./||')
+            echo "build_target=$WORKSPACE" >> $GITHUB_OUTPUT
+            echo "build_type=workspace" >> $GITHUB_OUTPUT
+          # Then check for expected project
+          elif [ -d "$EXPECTED_PROJECT" ]; then
+            echo "Found expected project: $EXPECTED_PROJECT"
+            echo "build_target=$EXPECTED_PROJECT" >> $GITHUB_OUTPUT
+            echo "build_type=project" >> $GITHUB_OUTPUT
+          # Finally check for any project
+          elif PROJECT=$(find . -maxdepth 1 -name "*.xcodeproj" -type d | head -n 1); then
+            echo "Found project: $PROJECT"
+            # Remove leading ./ if present
+            PROJECT=$(echo "$PROJECT" | sed 's|^\./||')
+            echo "build_target=$PROJECT" >> $GITHUB_OUTPUT
+            echo "build_type=project" >> $GITHUB_OUTPUT
+          else
+            echo "Error: Neither workspace nor project found!"
+            echo "Searched for:"
+            echo "  - $EXPECTED_WORKSPACE"
+            echo "  - $EXPECTED_PROJECT"
+            echo "  - Any *.xcworkspace"
+            echo "  - Any *.xcodeproj"
+            echo ""
+            echo "Available files:"
+            ls -la
+            exit 1
+          fi
+          
+          echo "Using build target: ${{ steps.verify-project.outputs.build_target }}"
+          echo "Build type: ${{ steps.verify-project.outputs.build_type }}"
+      - name: Detect scheme name
+        id: detect-scheme
+        working-directory: ios
+        run: |
+          BUILD_TARGET="${{ steps.verify-project.outputs.build_target }}"
+          BUILD_TYPE="${{ steps.verify-project.outputs.build_type }}"
+          EXPECTED_SCHEME="${{ steps.app-info.outputs.scheme_name }}"
+          
+          echo "Detecting available schemes..."
+          echo "Build target: $BUILD_TARGET"
+          echo "Build type: $BUILD_TYPE"
+          echo "Expected scheme: $EXPECTED_SCHEME"
+          
+          # Get list of schemes using xcodebuild -list
+          if [ "$BUILD_TYPE" = "workspace" ]; then
+            echo "Listing schemes from workspace..."
+            xcodebuild -workspace "$BUILD_TARGET" -list || true
+            SCHEMES=$(xcodebuild -workspace "$BUILD_TARGET" -list 2>/dev/null | awk '/Schemes:/{flag=1; next} /^$/{if(flag) exit} flag' | grep -v "^$" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+          else
+            echo "Listing schemes from project..."
+            xcodebuild -project "$BUILD_TARGET" -list || true
+            SCHEMES=$(xcodebuild -project "$BUILD_TARGET" -list 2>/dev/null | awk '/Schemes:/{flag=1; next} /^$/{if(flag) exit} flag' | grep -v "^$" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+          fi
+          
+          echo "All available schemes:"
+          echo "$SCHEMES"
+          
+          # Filter out pod schemes (common pod names)
+          POD_PATTERNS="Pods|EXAV|ExpoModulesCore|React-|RCT|FBLazyVector|hermes-engine|Yoga|ReactCommon|ReactCodegen|ReactNativeDependencies"
+          APP_SCHEMES=$(echo "$SCHEMES" | grep -v -E "$POD_PATTERNS" || echo "$SCHEMES")
+          
+          echo ""
+          echo "Filtered app schemes (excluding pods):"
+          echo "$APP_SCHEMES"
+          
+          # Get app name variations
+          APP_NAME_SCHEME="${{ steps.app-info.outputs.app_name_scheme }}"
+          
+          # Try to find the expected scheme first (exact match) in app schemes
+          ACTUAL_SCHEME=""
+          while IFS= read -r scheme; do
+            # Try slug match
+            if [ "$scheme" = "$EXPECTED_SCHEME" ]; then
+              ACTUAL_SCHEME="$scheme"
+              echo "Found exact match (slug): $ACTUAL_SCHEME"
+              break
+            fi
+            # Try app name match
+            if [ "$scheme" = "$APP_NAME_SCHEME" ]; then
+              ACTUAL_SCHEME="$scheme"
+              echo "Found exact match (app name): $ACTUAL_SCHEME"
+              break
+            fi
+          done <<< "$APP_SCHEMES"
+          
+          # If not found, try case-insensitive match in app schemes
+          if [ -z "$ACTUAL_SCHEME" ]; then
+            while IFS= read -r scheme; do
+              SCHEME_LOWER=$(echo "$scheme" | tr '[:upper:]' '[:lower:]')
+              if [ "$SCHEME_LOWER" = "$(echo "$EXPECTED_SCHEME" | tr '[:upper:]' '[:lower:]')" ] || [ "$SCHEME_LOWER" = "$(echo "$APP_NAME_SCHEME" | tr '[:upper:]' '[:lower:]')" ]; then
+                ACTUAL_SCHEME="$scheme"
+                echo "Found case-insensitive match: $ACTUAL_SCHEME"
+                break
+              fi
+            done <<< "$APP_SCHEMES"
+          fi
+          
+          # If still not found, use the first app scheme (not a pod)
+          if [ -z "$ACTUAL_SCHEME" ]; then
+            ACTUAL_SCHEME=$(echo "$APP_SCHEMES" | head -n 1 | xargs)
+            if [ -n "$ACTUAL_SCHEME" ]; then
+              echo "Using first available app scheme: $ACTUAL_SCHEME"
+            fi
+          fi
+          
+          # Last resort: if no app schemes found, try to find one that produces an app bundle
+          if [ -z "$ACTUAL_SCHEME" ] || [ "$ACTUAL_SCHEME" = "" ]; then
+            echo "No app schemes found, checking which schemes produce app bundles..."
+            # Try to get scheme info to see which produces an app
+            for scheme in $SCHEMES; do
+              if [ "$BUILD_TYPE" = "workspace" ]; then
+                PRODUCT_TYPE=$(xcodebuild -workspace "$BUILD_TARGET" -scheme "$scheme" -showBuildSettings 2>/dev/null | grep "PRODUCT_BUNDLE_IDENTIFIER" | head -n 1 | awk '{print $3}' || echo "")
+              else
+                PRODUCT_TYPE=$(xcodebuild -project "$BUILD_TARGET" -scheme "$scheme" -showBuildSettings 2>/dev/null | grep "PRODUCT_BUNDLE_IDENTIFIER" | head -n 1 | awk '{print $3}' || echo "")
+              fi
+              # If it has a bundle identifier and doesn't look like a pod, use it
+              if [ -n "$PRODUCT_TYPE" ] && ! echo "$scheme" | grep -qE "$POD_PATTERNS"; then
+                ACTUAL_SCHEME="$scheme"
+                echo "Found app scheme by bundle identifier: $ACTUAL_SCHEME"
+                break
+              fi
+            done
+          fi
+          
+          if [ -z "$ACTUAL_SCHEME" ] || [ "$ACTUAL_SCHEME" = "" ]; then
+            echo "Error: No app schemes found!"
+            echo "All schemes: $SCHEMES"
+            exit 1
+          fi
+          
+          echo "scheme_name=$ACTUAL_SCHEME" >> $GITHUB_OUTPUT
+          echo "Selected scheme: $ACTUAL_SCHEME"
+      - name: Build iOS app (unsigned)
+        working-directory: ios
+        run: |
+          if [ "${{ steps.verify-project.outputs.build_type }}" = "workspace" ]; then
+            xcodebuild -workspace "${{ steps.verify-project.outputs.build_target }}" \
+              -scheme "${{ steps.detect-scheme.outputs.scheme_name }}" \
+              -configuration Release \
+              -destination 'generic/platform=iOS' \
+              -derivedDataPath ./build/DerivedData \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_ENTITLEMENTS="" \
+              CODE_SIGNING_ALLOWED=NO \
+              clean build \
+              | tee xcodebuild.log
+          else
+            xcodebuild -project "${{ steps.verify-project.outputs.build_target }}" \
+              -scheme "${{ steps.detect-scheme.outputs.scheme_name }}" \
+              -configuration Release \
+              -destination 'generic/platform=iOS' \
+              -derivedDataPath ./build/DerivedData \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_ENTITLEMENTS="" \
+              CODE_SIGNING_ALLOWED=NO \
+              clean build \
+              | tee xcodebuild.log
+          fi
+          
+          # Check if build succeeded
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "Build failed!"
+            tail -n 50 xcodebuild.log
+            exit 1
+          fi
+          
+          echo "Build completed successfully"
+          
+          # List build output structure
+          echo "Build output structure:"
+          find ./build/DerivedData -type d -maxdepth 4 | head -n 30 || true
+      - name: Prepare app bundle
+        run: |
+          mkdir -p build
+          DERIVED_DATA="ios/build/DerivedData"
+          BUILD_DIR="${DERIVED_DATA}/Build/Products/Release-iphoneos"
+          
+          echo "Searching for app bundle..."
+          echo "Expected scheme name: ${{ steps.detect-scheme.outputs.scheme_name }}"
+          echo "Expected app slug: ${{ steps.app-info.outputs.scheme_name }}"
+          
+          # First, try the expected locations
+          APP_BUNDLE_NAME="${{ steps.detect-scheme.outputs.scheme_name }}"
+          APP_PATH="${BUILD_DIR}/${APP_BUNDLE_NAME}.app"
+          
+          # If not found, try the original scheme name
+          if [ ! -d "$APP_PATH" ]; then
+            APP_BUNDLE_NAME="${{ steps.app-info.outputs.scheme_name }}"
+            APP_PATH="${BUILD_DIR}/${APP_BUNDLE_NAME}.app"
+          fi
+          
+          # If still not found, search recursively in DerivedData for any .app
+          if [ ! -d "$APP_PATH" ]; then
+            echo "App bundle not found in expected location, searching recursively..."
+            echo "Searching in: $DERIVED_DATA"
+            APP_BUNDLE=$(find "$DERIVED_DATA" -name "*.app" -type d | grep -v ".framework" | grep -v "Pods" | head -n 1)
+            if [ -n "$APP_BUNDLE" ]; then
+              APP_BUNDLE_NAME=$(basename "$APP_BUNDLE" .app)
+              APP_PATH="$APP_BUNDLE"
+              echo "Found app bundle: $APP_BUNDLE_NAME at $APP_PATH"
+            fi
+          fi
+          
+          # If still not found, try alternative build paths
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Trying alternative build paths..."
+            ALTERNATIVE_PATHS=(
+              "${DERIVED_DATA}/Build/Products/Debug-iphoneos"
+              "${DERIVED_DATA}/Build/Products"
+              "ios/build"
+            )
+            
+            for ALT_PATH in "${ALTERNATIVE_PATHS[@]}"; do
+              if [ -d "$ALT_PATH" ]; then
+                ALT_BUNDLE=$(find "$ALT_PATH" -maxdepth 2 -name "*.app" -type d | grep -v ".framework" | head -n 1)
+                if [ -n "$ALT_BUNDLE" ]; then
+                  APP_BUNDLE_NAME=$(basename "$ALT_BUNDLE" .app)
+                  APP_PATH="$ALT_BUNDLE"
+                  echo "Found app bundle in alternative location: $APP_PATH"
+                  break
+                fi
+              fi
+            done
+          fi
+          
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Error: App bundle not found!"
+            echo "Searched in:"
+            echo "  - ${BUILD_DIR}/${{ steps.detect-scheme.outputs.scheme_name }}.app"
+            echo "  - ${BUILD_DIR}/${{ steps.app-info.outputs.scheme_name }}.app"
+            echo "  - Recursively in $DERIVED_DATA"
+            echo ""
+            echo "Listing DerivedData structure:"
+            find "$DERIVED_DATA" -maxdepth 3 -type d | head -n 20 || true
+            echo ""
+            echo "All .app files found:"
+            find "$DERIVED_DATA" -name "*.app" -type d 2>/dev/null || true
+            exit 1
+          fi
+          
+          TARGET_APP="build/${APP_BUNDLE_NAME}.app"
+          echo "Using app bundle: $APP_BUNDLE_NAME"
+          echo "Source path: $APP_PATH"
+          
+          cp -r "$APP_PATH" "$TARGET_APP"
+          
+          # Remove code signing
+          codesign --remove "$TARGET_APP" 2>/dev/null || true
+          if [ -e "$TARGET_APP/_CodeSignature" ]; then
+            rm -rf "$TARGET_APP/_CodeSignature"
+          fi
+          if [ -e "$TARGET_APP/embedded.mobileprovision" ]; then
+            rm -rf "$TARGET_APP/embedded.mobileprovision"
+          fi
+      - name: Create IPA
+        run: |
+          cd build
+          # Find the app bundle (it might have a different name)
+          APP_BUNDLE=$(find . -maxdepth 1 -name "*.app" -type d | head -n 1)
+          if [ -z "$APP_BUNDLE" ]; then
+            echo "Error: App bundle not found in build directory"
+            ls -la
+            exit 1
+          fi
+          
+          APP_NAME=$(basename "$APP_BUNDLE" .app)
+          mkdir -p Payload
+          cp -r "$APP_BUNDLE" "Payload/$APP_NAME.app"
+          
+          # Strip binary if it exists (binary name usually matches app name)
+          BINARY_PATH="Payload/$APP_NAME.app/$APP_NAME"
+          if [ -f "$BINARY_PATH" ]; then
+            strip "$BINARY_PATH" || true
+          fi
+          
+          zip -r "$APP_NAME.ipa" Payload
+          rm -rf "$APP_BUNDLE"
+          rm -rf Payload
+          
+          echo "IPA created: $APP_NAME.ipa"
+          ls -lh "$APP_NAME.ipa"
+          echo "ipa_name=$APP_NAME.ipa" >> $GITHUB_ENV
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iOS-Build-IPA
+          path: build/${{ env.ipa_name }}
+          retention-days: 30
+
+
+      - name: Publish GitHub Release (attach IPA)
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ios-ipa-${{ github.run_number }}
+          name: iOS IPA Build ${{ github.run_number }}
+          body: |
+            Automated unsigned iOS IPA build from workflow run ${{ github.run_id }}.
+            Commit: ${{ github.sha }}
+          draft: false
+          prerelease: false
+          files: build/${{ env.ipa_name }}
