@@ -10,9 +10,11 @@ import {
     Modal,
     TextInput,
 } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import SwipeableTrackRow from './SwipeableTrackRow';
+import { useDownload } from '../context/DownloadContext';
 
 function pickImageUrl(images, preferredSize = 'large') {
     if (!Array.isArray(images)) return null;
@@ -23,10 +25,12 @@ function pickImageUrl(images, preferredSize = 'large') {
 }
 
 export default function PlaylistPage({ route, navigation }) {
-    const { playlist: initialPlaylist, theme, onTrackPress, isPlaying, currentTrack, togglePlay, addToQueue, deletePlaylist, updatePlaylist, showNotification, library } = route.params;
+    const { playlist: initialPlaylist, theme, onTrackPress, isPlaying, currentTrack, togglePlay, addToQueue, deletePlaylist, updatePlaylist, showNotification, library, useTidalForUnowned } = route.params;
 
     const { playlists } = route.params;
     const playlist = playlists?.find(p => p.id === initialPlaylist.id) || initialPlaylist;
+
+    const { startAlbumDownload, albumDownloads, downloadedTracks } = useDownload();
 
     const [contextMenuTrack, setContextMenuTrack] = useState(null);
     const [selectedTrackKey, setSelectedTrackKey] = useState(null);
@@ -65,6 +69,62 @@ export default function PlaylistPage({ route, navigation }) {
         }).start(() => {
             setPlaylistMenuVisible(false);
         });
+    };
+
+    const handleDownloadPlaylist = async () => {
+        if (!useTidalForUnowned) return;
+        closePlaylistMenu();
+        
+        const tracksToDownload = playlist.tracks.filter(t => {
+            // Check if we have a local file URI
+            return !t.uri || !t.uri.startsWith('file://');
+        });
+
+        if (tracksToDownload.length === 0) {
+            alert('All tracks are already downloaded');
+            return;
+        }
+
+        startAlbumDownload(playlist.id, tracksToDownload);
+    };
+
+    const renderProgressCircle = () => {
+        const progressData = albumDownloads[playlist.id];
+        const progress = progressData ? progressData.progress : 0;
+        
+        const size = 24;
+        const strokeWidth = 3;
+        const center = size / 2;
+        const radius = (size - strokeWidth) / 2;
+        const circumference = 2 * Math.PI * radius;
+        const strokeDashoffset = circumference - (progress * circumference);
+
+        return (
+          <View style={{ width: size + 16, height: size + 16, justifyContent: 'center', alignItems: 'center' }}>
+            <Svg width={size} height={size}>
+              <Circle
+                stroke={theme.secondaryText}
+                cx={center}
+                cy={center}
+                r={radius}
+                strokeWidth={strokeWidth}
+                opacity={0.3}
+              />
+              <Circle
+                stroke={theme.primaryText}
+                cx={center}
+                cy={center}
+                r={radius}
+                strokeWidth={strokeWidth}
+                strokeDasharray={circumference}
+                strokeDashoffset={strokeDashoffset}
+                strokeLinecap="round"
+                rotation="-90"
+                origin={`${center}, ${center}`}
+              />
+            </Svg>
+          </View>
+        );
     };
 
     const handleEditPlaylist = () => {
@@ -155,6 +215,10 @@ export default function PlaylistPage({ route, navigation }) {
                     <View style={styles.artworkContainer}>
                         {playlist?.image ? (
                             <Image style={styles.playlistArtwork} source={{ uri: playlist.image }} />
+                        ) : playlist?.isDefault ? (
+                            <View style={[styles.playlistArtwork, { backgroundColor: theme.primary }]}>
+                                <Ionicons name="star" size={100} color="#000000" />
+                            </View>
                         ) : (
                             <View style={[styles.playlistArtwork, { backgroundColor: theme.card }]}>
                                 <Ionicons name="musical-notes" size={100} color={theme.secondaryText} />
@@ -178,6 +242,10 @@ export default function PlaylistPage({ route, navigation }) {
                             style={styles.playlistArtwork}
                             source={{ uri: playlist.image }}
                         />
+                    ) : playlist?.isDefault ? (
+                        <View style={[styles.playlistArtwork, { backgroundColor: theme.primary }]}>
+                            <Ionicons name="star" size={100} color="#000000" />
+                        </View>
                     ) : (
                         <View style={[styles.playlistArtwork, { backgroundColor: theme.card }]}>
                             <Ionicons name="musical-notes" size={100} color={theme.secondaryText} />
@@ -245,6 +313,13 @@ export default function PlaylistPage({ route, navigation }) {
                             trackScaleAnims.current[trackKey] = new Animated.Value(1);
                         }
 
+                        const libraryTrack = library?.find(t => 
+                            (t.uri && track.uri && t.uri === track.uri) || 
+                            (t.name === track.name && (t.artist?.name || t.artist) === (track.artist?.name || track.artist))
+                        );
+                        const isDownloaded = downloadedTracks.has(track.id) || downloadedTracks.has(track.name) || (track.uri && downloadedTracks.has(track.uri));
+                        const isImported = !!libraryTrack || isDownloaded;
+
                         return (
                             <Animated.View
                                 key={`playlist-track-${index}`}
@@ -256,6 +331,7 @@ export default function PlaylistPage({ route, navigation }) {
                             >
                                 <SwipeableTrackRow
                                     theme={theme}
+                                    enabled={isImported}
                                     onSwipeLeft={() => {
                                         if (addToQueue) {
                                             addToQueue(track);
@@ -264,12 +340,19 @@ export default function PlaylistPage({ route, navigation }) {
                                 >
                                     <Pressable
                                         onPress={() => {
-                                            if (onTrackPress) {
+                                            if (isImported && onTrackPress) {
                                                 onTrackPress(track, playlist.tracks, index);
                                             }
                                         }}
-                                        onLongPress={() => openContextMenu(track, trackKey)}
-                                        style={[styles.trackRow, { borderBottomColor: theme.border, backgroundColor: theme.background }]}
+                                        onLongPress={() => isImported && openContextMenu(track, trackKey)}
+                                        style={[
+                                            styles.trackRow, 
+                                            { 
+                                                borderBottomColor: theme.border, 
+                                                backgroundColor: theme.background,
+                                                opacity: isImported ? 1 : 0.5 
+                                            }
+                                        ]}
                                     >
                                         {/* Track Artwork */}
                                         {imageUrl ? (
@@ -289,9 +372,15 @@ export default function PlaylistPage({ route, navigation }) {
                                             </Text>
                                         </View>
 
-                                        <Pressable onPress={() => openContextMenu(track, trackKey)} hitSlop={10}>
-                                            <Ionicons name="ellipsis-horizontal" size={20} color={theme.secondaryText} />
-                                        </Pressable>
+                                        {libraryTrack?.favorite ? (
+                                            <Ionicons name="star" size={16} color={theme.primaryText} style={{ marginRight: 8 }} />
+                                        ) : null}
+
+                                        {isImported && (
+                                            <Pressable onPress={() => openContextMenu(track, trackKey)} hitSlop={10}>
+                                                <Ionicons name="ellipsis-horizontal" size={20} color={theme.secondaryText} />
+                                            </Pressable>
+                                        )}
                                     </Pressable>
                                 </SwipeableTrackRow>
                             </Animated.View>
@@ -308,6 +397,9 @@ export default function PlaylistPage({ route, navigation }) {
                 <Pressable onPress={() => navigation.goBack()} style={[styles.backButton, { backgroundColor: theme.backButton }]}>
                     <Ionicons name="chevron-back" size={24} color={theme.backButtonText} />
                 </Pressable>
+                {albumDownloads[playlist.id]?.isDownloading ? (
+                    renderProgressCircle()
+                ) : (
                 <Pressable
                     ref={playlistMenuButtonRef}
                     onPress={openPlaylistMenu}
@@ -316,6 +408,7 @@ export default function PlaylistPage({ route, navigation }) {
                 >
                     <Ionicons name="ellipsis-horizontal" size={24} color={theme.primaryText} />
                 </Pressable>
+                )}
             </View>
 
             <ScrollView
@@ -353,15 +446,28 @@ export default function PlaylistPage({ route, navigation }) {
                             },
                         ]}
                     >
-                        <Pressable style={styles.contextMenuItem} onPress={handleEditPlaylist}>
-                            <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Edit Playlist</Text>
-                            <Ionicons name="pencil-outline" size={20} color={theme.primaryText} />
-                        </Pressable>
-                        <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
-                        <Pressable style={styles.contextMenuItem} onPress={handleDeletePlaylist}>
-                            <Text style={[styles.contextMenuText, { color: theme.error }]}>Delete Playlist</Text>
-                            <Ionicons name="trash-outline" size={20} color={theme.error} />
-                        </Pressable>
+                        {!playlist.isDefault && (
+                            <>
+                                <Pressable style={styles.contextMenuItem} onPress={handleEditPlaylist}>
+                                    <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Edit Playlist</Text>
+                                    <Ionicons name="pencil-outline" size={20} color={theme.primaryText} />
+                                </Pressable>
+                                <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
+                                {useTidalForUnowned && (
+                                    <>
+                                        <Pressable style={styles.contextMenuItem} onPress={handleDownloadPlaylist}>
+                                            <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Make available offline</Text>
+                                            <Ionicons name="download-outline" size={20} color={theme.primaryText} />
+                                        </Pressable>
+                                        <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
+                                    </>
+                                )}
+                                <Pressable style={styles.contextMenuItem} onPress={handleDeletePlaylist}>
+                                    <Text style={[styles.contextMenuText, { color: theme.error }]}>Delete Playlist</Text>
+                                    <Ionicons name="trash-outline" size={20} color={theme.error} />
+                                </Pressable>
+                            </>
+                        )}
                     </Animated.View>
                 </>
             )}

@@ -11,6 +11,7 @@ import {
   Modal,
   TextInput,
   FlatList,
+  useWindowDimensions,
 } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -76,6 +77,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
   const { album: initialAlbum, theme, onTrackPress, libraryAlbums, library, openArtistByName, deleteTrack, updateTrack, addToQueue, addAlbumToQueue, currentTrack, isPlaying, togglePlay, useTidalForUnowned, addToLibrary, showNotification, playlists, addTrackToPlaylist } = route.params;
   const loading = false;
   const isFocused = useIsFocused();
+  const { height: screenHeight } = useWindowDimensions();
 
   // Find the current album from libraryAlbums to get live updates
   const [album, setAlbum] = useState(initialAlbum);
@@ -306,14 +308,25 @@ export default function LibraryAlbumPage({ route, navigation }) {
     fetchAlbumTracks();
   }, [album]);
 
-  const openContextMenu = (track, trackKey) => {
+  const openContextMenu = (track, trackKey, isLastItem = false) => {
     const ref = trackRefs.current[trackKey];
     if (ref) {
       // Trigger haptic feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       ref.measure((x, y, width, height, pageX, pageY) => {
-        setMenuPosition({ x: pageX, y: pageY + height });
+        const MENU_HEIGHT = 220; // Approximate height of the menu
+        const OFFSET = 60; // Overlap offset
+        
+        // Default position (below with overlap)
+        let finalY = pageY + height - OFFSET;
+        
+        // If menu would go off screen bottom OR it's the last item, show above instead
+        if (isLastItem || (finalY + MENU_HEIGHT > screenHeight - 20)) { // 20px buffer
+          finalY = pageY - MENU_HEIGHT + OFFSET;
+        }
+
+        setMenuPosition({ x: pageX, y: finalY });
         setContextMenuTrack(track);
         setSelectedTrackKey(trackKey);
 
@@ -708,7 +721,10 @@ export default function LibraryAlbumPage({ route, navigation }) {
                           {track.artist}
                         </Text>
                       </View>
-                      <Pressable onPress={() => openContextMenu(track, trackKey)} hitSlop={10}>
+                      {track.favorite && (
+                          <Ionicons name="star" size={16} color={theme.primaryText} style={{ marginRight: 8 }} />
+                      )}
+                      <Pressable onPress={() => openContextMenu(track, trackKey, index === allTracks.length - 1)} hitSlop={10}>
                         <Ionicons name="ellipsis-horizontal" size={20} color={theme.secondaryText} />
                       </Pressable>
                     </Pressable>
@@ -748,6 +764,9 @@ export default function LibraryAlbumPage({ route, navigation }) {
                         {track.artist}
                       </Text>
                     </View>
+                    {track.favorite && (
+                        <Ionicons name="star" size={16} color={theme.primaryText} style={{ marginRight: 8 }} />
+                    )}
                     {useTidalForUnowned ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                         {/* Only show download option if album is in library */}
@@ -894,20 +913,6 @@ export default function LibraryAlbumPage({ route, navigation }) {
             <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
             <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
             
-            {/* Only show Edit if in library */}
-            {isAlbumInLibrary && (
-                <>
-                    <Pressable style={styles.contextMenuItem} onPress={() => {
-                        // Placeholder for edit album
-                        closeAlbumMenu();
-                    }}>
-                    <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Edit</Text>
-                    <Ionicons name="pencil-outline" size={20} color={theme.primaryText} />
-                    </Pressable>
-                    <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
-                </>
-            )}
-
             {/* Show in library only if NOT in library */}
             {!isAlbumInLibrary && (
                 <>
@@ -919,8 +924,8 @@ export default function LibraryAlbumPage({ route, navigation }) {
                 </>
             )}
 
-            {/* Only show Download if in library */}
-            {isAlbumInLibrary && (
+            {/* Only show Download if in library and modules are enabled */}
+            {isAlbumInLibrary && useTidalForUnowned && (
                 <>
                     <Pressable style={styles.contextMenuItem} onPress={handleDownloadAlbum}>
                     <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Make available offline</Text>
@@ -959,7 +964,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
                 backgroundColor: theme.card,
                 borderColor: theme.border,
                 right: 16,
-                top: menuPosition.y - 60,
+                top: menuPosition.y,
                 opacity: menuAnim,
                 transform: [
                   {

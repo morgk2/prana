@@ -2,10 +2,14 @@
 // This file keeps the old Last.fm-style function names so App.js can stay mostly unchanged.
 // IMPORTANT: For production, move the Spotify client secret to a secure backend.
 
+const LASTFM_API_KEY = '4a9f5581a9cdf20a699f540aa52a95c9'; // Public shared key for demo purposes. Replace with your own!
+const LASTFM_BASE_URL = 'https://ws.audioscrobbler.com/2.0/';
+
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SPOTIFY_SEARCH_URL = 'https://api.spotify.com/v1/search';
 const SPOTIFY_ARTISTS_URL = 'https://api.spotify.com/v1/artists';
 const SPOTIFY_ALBUMS_URL = 'https://api.spotify.com/v1/albums';
+const SPOTIFY_PLAYLISTS_URL = 'https://api.spotify.com/v1/playlists';
 
 // TEMP: hard-coded credentials for local/dev use only.
 // Replace these placeholders with your real Spotify client ID and secret.
@@ -176,6 +180,45 @@ export async function searchLastfmArtists(query, { limit = 10 } = {}) {
   return items.map(mapSpotifyArtistToLastfm).filter(Boolean);
 }
 
+export async function getArtistInfo(artistName) {
+  const [token, spotifyArtist] = await Promise.all([
+    getSpotifyToken(),
+    findSpotifyArtistByName(artistName),
+  ]);
+  
+  return mapSpotifyArtistToLastfm(spotifyArtist);
+}
+
+export async function getRelatedArtists(artistName, { limit = 20 } = {}) {
+  const [token, spotifyArtist] = await Promise.all([
+    getSpotifyToken(),
+    findSpotifyArtistByName(artistName),
+  ]);
+
+  if (!spotifyArtist || !spotifyArtist.id) return [];
+
+  const url = `${SPOTIFY_ARTISTS_URL}/${encodeURIComponent(spotifyArtist.id)}/related-artists`;
+  
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    if (res.status === 404) {
+        console.warn(`Spotify related-artists 404 for artist ID: ${spotifyArtist.id}`);
+        return [];
+    }
+    const text = await res.text().catch(() => '');
+    throw new Error(`Spotify related-artists error ${res.status}: ${text}`);
+  }
+
+  const json = await res.json();
+  const items = json.artists ?? [];
+  return items.slice(0, limit).map(mapSpotifyArtistToLastfm).filter(Boolean);
+}
+
 // Get top tracks for an artist name (best Spotify match)
 export async function getArtistTopTracks(artist, { limit = 50 } = {}) {
   const [token, spotifyArtist] = await Promise.all([
@@ -307,5 +350,44 @@ export async function getAlbumInfo({ artist, album, mbid }) {
     tracks: {
       track: tracks,
     },
+  };
+}
+
+// Get playlist info and tracks (Spotify-backed)
+export async function getSpotifyPlaylist(playlistId) {
+  const token = await getSpotifyToken();
+  
+  const url = new URL(`${SPOTIFY_PLAYLISTS_URL}/${playlistId}`);
+  url.searchParams.set('market', 'US');
+
+  const res = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Spotify playlist error ${res.status}: ${text}`);
+  }
+
+  const json = await res.json();
+
+  // Extract tracks
+  const tracks = (json.tracks?.items ?? []).map((item) => {
+    if (!item.track) return null;
+    return {
+      ...mapSpotifyTrackToLastfm(item.track),
+      // Ensure we have an image, if the track doesn't have one use the playlist image (or album image which is default)
+    };
+  }).filter(Boolean);
+
+  return {
+    name: json.name,
+    id: json.id,
+    description: json.description,
+    image: mapSpotifyImagesToLastfmStyle(json.images),
+    tracks,
+    owner: json.owner?.display_name
   };
 }

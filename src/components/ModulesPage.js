@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, FlatList, Pressable, Image, ActivityIndicator, StyleSheet, Switch } from 'react-native';
+import { View, Text, TextInput, FlatList, Pressable, Image, ActivityIndicator, StyleSheet, Switch, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { searchTracks, getTrackStreamUrl } from '../services/tidalApi';
 import { getArtworkWithFallback } from '../utils/artworkFallback';
@@ -7,11 +7,20 @@ import { getArtworkWithFallback } from '../utils/artworkFallback';
 export default function ModulesPage({ route, navigation }) {
   const { theme, openTrackPlayer, useTidalForUnowned, toggleTidalForUnowned } = route.params;
   
+  const [currentView, setCurrentView] = useState('list'); // 'list' or 'tidal'
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [artworkCache, setArtworkCache] = useState({});
+
+  const handleBack = () => {
+    if (currentView === 'tidal') {
+      setCurrentView('list');
+    } else {
+      navigation.goBack();
+    }
+  };
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -146,106 +155,157 @@ export default function ModulesPage({ route, navigation }) {
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.backButton}>
+        <Pressable onPress={handleBack} hitSlop={10} style={styles.backButton}>
           <Ionicons name="chevron-back" size={32} color={theme.primaryText} />
         </Pressable>
-        <Text style={[styles.title, { color: theme.primaryText }]}>Modules</Text>
+        <Text style={[styles.title, { color: theme.primaryText }]}>
+          {currentView === 'list' ? 'Modules' : 'Tidal Music'}
+        </Text>
       </View>
 
-      {/* Toggle for Unowned Media */}
-      <View style={[styles.toggleSection, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <View style={styles.toggleLeft}>
-          <Ionicons name="cloud-download-outline" size={24} color={theme.primaryText} />
-          <View style={styles.toggleTextContainer}>
-            <Text style={[styles.toggleTitle, { color: theme.primaryText }]}>
-              Use to play unimported media
+      {currentView === 'list' ? (
+        <View style={styles.modulesListContainer}>
+          <Text style={[styles.sectionTitle, { color: theme.primaryText, marginBottom: 16, paddingHorizontal: 16 }]}>
+            Pre-installed Modules
+          </Text>
+          
+          <View style={[styles.moduleCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.moduleHeaderRow}>
+              <View style={[styles.moduleIconContainer, { backgroundColor: theme.inputBackground }]}>
+                <Ionicons name="musical-notes" size={32} color={theme.accent} />
+              </View>
+              <View style={styles.moduleInfo}>
+                <Text style={[styles.moduleName, { color: theme.primaryText }]}>Tidal Music</Text>
+                <Text style={[styles.moduleAuthor, { color: theme.secondaryText }]}>Morgk</Text>
+              </View>
+            </View>
+            
+            <Text style={[styles.moduleDescription, { color: theme.secondaryText }]}>
+              Stream high-fidelity music directly from Tidal's extensive catalog.
             </Text>
-            <Text style={[styles.toggleDescription, { color: theme.secondaryText }]}>
-              Stream unowned tracks from Tidal
-            </Text>
+            
+            <View style={styles.moduleActions}>
+              <Pressable 
+                style={[styles.actionButton, styles.uninstallButton, { backgroundColor: theme.border }]}
+                disabled={true}
+              >
+                 <Text style={[styles.actionButtonText, { color: theme.secondaryText }]}>Uninstall</Text>
+              </Pressable>
+              <Pressable 
+                style={[styles.actionButton, { backgroundColor: theme.accent }]}
+                onPress={() => setCurrentView('tidal')}
+              >
+                 <Text style={[styles.actionButtonText, { color: '#fff' }]}>Expand</Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
-        <Switch
-          value={useTidalForUnowned}
-          onValueChange={toggleTidalForUnowned}
-          trackColor={{ false: theme.border, true: theme.accent + '80' }}
-          thumbColor={useTidalForUnowned ? theme.accent : theme.secondaryText}
-        />
-      </View>
 
-      {/* Tidal Search Section */}
-      <View style={styles.searchSection}>
-        <View style={styles.sectionHeader}>
-          <Ionicons name="musical-note" size={20} color={theme.accent} />
-          <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Tidal Music</Text>
-        </View>
-
-        {/* Search Bar */}
-        <View style={[styles.searchBar, { backgroundColor: theme.inputBackground }]}>
-          <Ionicons name="search" size={20} color={theme.secondaryText} style={styles.searchIcon} />
-          <TextInput
-            style={[styles.searchInput, { color: theme.primaryText }]}
-            placeholder="Search for songs..."
-            placeholderTextColor={theme.secondaryText}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            onSubmitEditing={handleSearch}
-            returnKeyType="search"
-          />
-          {searchQuery.length > 0 && (
-            <Pressable onPress={() => setSearchQuery('')} hitSlop={10}>
-              <Ionicons name="close-circle" size={20} color={theme.secondaryText} />
-            </Pressable>
-          )}
-        </View>
-
-        {/* Search Button */}
-        <Pressable
-          style={[styles.searchButton, { backgroundColor: theme.accent }]}
-          onPress={handleSearch}
-          disabled={loading || !searchQuery.trim()}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.searchButtonText}>Search</Text>
-          )}
-        </Pressable>
-      </View>
-
-      {/* Error Message */}
-      {error && (
-        <View style={[styles.errorContainer, { backgroundColor: theme.card }]}>
-          <Ionicons name="alert-circle" size={20} color="#ff4444" />
-          <Text style={[styles.errorText, { color: '#ff4444' }]}>{error}</Text>
-        </View>
-      )}
-
-      {/* Results */}
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.accent} />
-          <Text style={[styles.loadingText, { color: theme.secondaryText }]}>Searching Tidal...</Text>
-        </View>
-      ) : searchResults.length > 0 ? (
-        <FlatList
-          data={searchResults}
-          renderItem={renderTrackItem}
-          keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={styles.resultsList}
-        />
-      ) : searchQuery && !loading ? (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="search" size={48} color={theme.secondaryText} />
-          <Text style={[styles.emptyText, { color: theme.secondaryText }]}>No results found</Text>
+          <Pressable 
+            style={[styles.installButton, { backgroundColor: theme.inputBackground }]}
+            onPress={() => Alert.alert('Coming Soon', 'Module installation will be available in a future update.')}
+          >
+            <Ionicons name="add-circle-outline" size={24} color={theme.accent} />
+            <Text style={[styles.installButtonText, { color: theme.primaryText }]}>Install a Module</Text>
+          </Pressable>
         </View>
       ) : (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="musical-notes" size={48} color={theme.secondaryText} />
-          <Text style={[styles.emptyText, { color: theme.secondaryText }]}>
-            Search for music on Tidal
-          </Text>
-        </View>
+        <>
+          {/* Toggle for Unowned Media */}
+          <View style={[styles.toggleSection, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+            <View style={styles.toggleLeft}>
+              <Ionicons name="cloud-download-outline" size={24} color={theme.primaryText} />
+              <View style={styles.toggleTextContainer}>
+                <Text style={[styles.toggleTitle, { color: theme.primaryText }]}>
+                  Use to play unimported media
+                </Text>
+                <Text style={[styles.toggleDescription, { color: theme.secondaryText }]}>
+                  Stream unowned tracks from Tidal
+                </Text>
+              </View>
+            </View>
+            <Switch
+              value={useTidalForUnowned}
+              onValueChange={toggleTidalForUnowned}
+              trackColor={{ false: theme.border, true: theme.accent + '80' }}
+              thumbColor={useTidalForUnowned ? theme.accent : theme.secondaryText}
+            />
+          </View>
+
+          {/* Tidal Search Section */}
+          <View style={styles.searchSection}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="musical-note" size={20} color={theme.accent} />
+              <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Search Tidal</Text>
+            </View>
+
+            {/* Search Bar */}
+            <View style={[styles.searchBar, { backgroundColor: theme.inputBackground }]}>
+              <Ionicons name="search" size={20} color={theme.secondaryText} style={styles.searchIcon} />
+              <TextInput
+                style={[styles.searchInput, { color: theme.primaryText }]}
+                placeholder="Search for songs..."
+                placeholderTextColor={theme.secondaryText}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                onSubmitEditing={handleSearch}
+                returnKeyType="search"
+              />
+              {searchQuery.length > 0 && (
+                <Pressable onPress={() => setSearchQuery('')} hitSlop={10}>
+                  <Ionicons name="close-circle" size={20} color={theme.secondaryText} />
+                </Pressable>
+              )}
+            </View>
+
+            {/* Search Button */}
+            <Pressable
+              style={[styles.searchButton, { backgroundColor: theme.accent }]}
+              onPress={handleSearch}
+              disabled={loading || !searchQuery.trim()}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.searchButtonText}>Search</Text>
+              )}
+            </Pressable>
+          </View>
+
+          {/* Error Message */}
+          {error && (
+            <View style={[styles.errorContainer, { backgroundColor: theme.card }]}>
+              <Ionicons name="alert-circle" size={20} color="#ff4444" />
+              <Text style={[styles.errorText, { color: '#ff4444' }]}>{error}</Text>
+            </View>
+          )}
+
+          {/* Results */}
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={theme.accent} />
+              <Text style={[styles.loadingText, { color: theme.secondaryText }]}>Searching Tidal...</Text>
+            </View>
+          ) : searchResults.length > 0 ? (
+            <FlatList
+              data={searchResults}
+              renderItem={renderTrackItem}
+              keyExtractor={(item) => item.id.toString()}
+              contentContainerStyle={styles.resultsList}
+            />
+          ) : searchQuery && !loading ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="search" size={48} color={theme.secondaryText} />
+              <Text style={[styles.emptyText, { color: theme.secondaryText }]}>No results found</Text>
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="musical-notes" size={48} color={theme.secondaryText} />
+              <Text style={[styles.emptyText, { color: theme.secondaryText }]}>
+                Search for music on Tidal
+              </Text>
+            </View>
+          )}
+        </>
       )}
     </View>
   );
@@ -403,6 +463,75 @@ const styles = StyleSheet.create({
   },
   trackQuality: {
     fontSize: 10,
+    fontWeight: '600',
+  },
+  modulesListContainer: {
+    padding: 16,
+  },
+  moduleCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    gap: 12,
+  },
+  moduleHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  moduleIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moduleInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  moduleName: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  moduleAuthor: {
+    fontSize: 14,
+  },
+  moduleDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  moduleActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+  },
+  actionButton: {
+    flex: 1,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uninstallButton: {
+    borderWidth: 1,
+    borderColor: 'transparent', // Will be overridden by theme border
+  },
+  actionButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  installButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 16,
+    gap: 8,
+  },
+  installButtonText: {
+    fontSize: 16,
     fontWeight: '600',
   },
 });

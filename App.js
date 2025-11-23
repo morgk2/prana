@@ -1,7 +1,7 @@
 import { DownloadProvider } from './src/context/DownloadContext';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TextInput, Button, ActivityIndicator, Image, FlatList, ScrollView, Pressable, useColorScheme, Animated, Modal } from 'react-native';
+import { StyleSheet, Text, View, TextInput, Button, ActivityIndicator, Image, FlatList, ScrollView, Pressable, useColorScheme, Animated, Modal, Alert, useWindowDimensions } from 'react-native';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -17,6 +17,7 @@ import LibrarySongs from './src/components/LibrarySongs';
 import LibraryPlaylists from './src/components/LibraryPlaylists';
 import AddPlaylist from './src/components/AddPlaylist';
 import PlaylistPage from './src/components/PlaylistPage';
+import ImportSpotifyPlaylist from './src/components/ImportSpotifyPlaylist';
 import SongPlayer from './src/components/SongPlayer';
 import HomeScreen from './src/components/HomeScreen';
 import ModulesPage from './src/components/ModulesPage';
@@ -51,6 +52,7 @@ const LIBRARY_FILE = LIBRARY_DIR + '/tracks.json';
 const ARTISTS_FILE = LIBRARY_DIR + '/artists.json';
 const PLAYLISTS_FILE = LIBRARY_DIR + '/playlists.json';
 const SETTINGS_FILE = LIBRARY_DIR + '/settings.json';
+const PLAYER_STATE_FILE = LIBRARY_DIR + '/player_state.json';
 
 const LibraryStack = createNativeStackNavigator();
 const RootStack = createNativeStackNavigator();
@@ -132,7 +134,8 @@ async function detectIntent(query) {
 
 
 function LibraryHomeScreen({ route, navigation }) {
-  const { theme, libraryAlbums, libraryArtists, library, playlists, addPlaylist, deletePlaylist, updatePlaylist, showNotification, pickLocalAudio, deleteAlbum, updateAlbum, openTrackPlayer, openArtistPage, addAlbumToQueue, addToQueue, currentTrack, insets, deleteTrack, updateTrack, addToLibrary, useTidalForUnowned, playerControls } = route.params;
+  const { theme, libraryAlbums, libraryArtists, library, playlists, addPlaylist, deletePlaylist, updatePlaylist, showNotification, pickLocalAudio, deleteAlbum, updateAlbum, openTrackPlayer, openArtistPage, addAlbumToQueue, addToQueue, currentTrack, insets, deleteTrack, updateTrack, addToLibrary, useTidalForUnowned, playerControls, clearAllData, addTrackToPlaylist } = route.params;
+  const { height: screenHeight } = useWindowDimensions();
 
   const [contextMenuAlbum, setContextMenuAlbum] = useState(null);
   const [selectedAlbumKey, setSelectedAlbumKey] = useState(null);
@@ -151,7 +154,18 @@ function LibraryHomeScreen({ route, navigation }) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       ref.measure((x, y, width, height, pageX, pageY) => {
-        setMenuPosition({ x: pageX, y: pageY + height });
+        const MENU_HEIGHT = 220; // Approximate height of the menu
+        const OFFSET = 60; // Overlap offset
+        
+        // Default position (below with overlap)
+        let finalY = pageY + height - OFFSET;
+        
+        // If menu would go off screen bottom, show above instead
+        if (finalY + MENU_HEIGHT > screenHeight - 20) { // 20px buffer
+          finalY = pageY - MENU_HEIGHT + OFFSET;
+        }
+
+        setMenuPosition({ x: pageX, y: finalY });
         setContextMenuAlbum(album);
         setSelectedAlbumKey(albumKey);
 
@@ -317,7 +331,7 @@ function LibraryHomeScreen({ route, navigation }) {
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 20 }}>
           <Text style={[styles.title, { color: theme.primaryText }]}>Library</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-            <Pressable onPress={() => navigation.navigate('Settings', { theme })} hitSlop={10}>
+            <Pressable onPress={() => navigation.navigate('Settings', { theme, library, libraryArtists, libraryAlbums, clearAllData, addPlaylist, showNotification })} hitSlop={10}>
               <Ionicons name="settings-outline" size={26} color={theme.primaryText} />
             </Pressable>
             <Pressable onPress={pickLocalAudio} hitSlop={10}>
@@ -341,6 +355,7 @@ function LibraryHomeScreen({ route, navigation }) {
               onTrackPress: openTrackPlayer,
               currentTrack,
               addToQueue,
+              useTidalForUnowned,
               onPlaylistPress: (playlist) => console.log('Open playlist', playlist)
             })}
           >
@@ -375,7 +390,7 @@ function LibraryHomeScreen({ route, navigation }) {
 
           <Pressable
             style={[styles.libraryNavButton, { backgroundColor: theme.card, borderBottomWidth: 0 }]}
-            onPress={() => navigation.navigate('LibrarySongs', { theme, library, onTrackPress: openTrackPlayer, addToQueue })}
+            onPress={() => navigation.navigate('LibrarySongs', { theme, library, onTrackPress: openTrackPlayer, addToQueue, deleteTrack, updateTrack, playlists, addTrackToPlaylist, showNotification })}
           >
             <View style={styles.libraryNavIconContainer}>
               <Ionicons name="musical-note" size={22} color={theme.primaryText} />
@@ -435,8 +450,8 @@ function LibraryHomeScreen({ route, navigation }) {
                 {
                   backgroundColor: theme.card,
                   borderColor: theme.border,
-                  right: 16,
-                  top: menuPosition.y - 60,
+                  left: menuPosition.x,
+                  top: menuPosition.y,
                   opacity: menuAnim,
                   transform: [
                     {
@@ -519,9 +534,294 @@ function LibraryHomeScreen({ route, navigation }) {
   );
 }
 
+// Cache Page
+function CachePage({ route, navigation }) {
+  const { theme, library, libraryArtists, libraryAlbums, clearAllData } = route.params;
+  const [storageInfo, setStorageInfo] = useState({ free: 0, total: 0, used: 0, appUsed: 0 });
+
+  useEffect(() => {
+    loadStorageInfo();
+  }, []);
+
+  const loadStorageInfo = async () => {
+    try {
+      const free = await FileSystem.getFreeDiskStorageAsync();
+      const total = await FileSystem.getTotalDiskCapacityAsync();
+      
+      // Estimate app usage (documents folder)
+      let appUsed = 0;
+      try {
+        const docInfo = await FileSystem.getInfoAsync(FileSystem.documentDirectory, { size: true });
+        if (docInfo.exists && docInfo.size) {
+          appUsed = docInfo.size;
+        }
+      } catch (err) {
+        console.log('Failed to get app size', err);
+      }
+
+      setStorageInfo({ free, total, used: total - free, appUsed });
+    } catch (e) {
+      console.warn('Failed to load storage info', e);
+    }
+  };
+
+  const formatBytes = (bytes, decimals = 2) => {
+    if (!+bytes) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+  };
+
+  const getUsagePercentages = () => {
+    if (storageInfo.total === 0) return { app: 0, other: 0, free: 0 };
+    const app = (storageInfo.appUsed / storageInfo.total) * 100;
+    const totalUsed = (storageInfo.used / storageInfo.total) * 100;
+    const other = Math.max(0, totalUsed - app);
+    return { app, other, free: 100 - totalUsed };
+  };
+
+  const handleClearData = () => {
+    Alert.alert(
+      'Clear All Data',
+      'Are you sure you want to delete all music, artists, and settings? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive', 
+          onPress: () => {
+            if (clearAllData) {
+              clearAllData();
+              navigation.goBack();
+            }
+          } 
+        }
+      ]
+    );
+  };
+
+  const percentages = getUsagePercentages();
+
+  return (
+    <View style={[styles.settingsPageContainer, { backgroundColor: theme.background }]}>
+      <View style={styles.settingsPageHeader}>
+        <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.backButtonContainer}>
+          <Ionicons name="chevron-back" size={32} color={theme.primaryText} />
+        </Pressable>
+        <Text style={[styles.settingsPageTitle, { color: theme.primaryText }]}>Storage & Cache</Text>
+      </View>
+
+      <ScrollView style={{ flex: 1 }}>
+        <View style={styles.settingsSection}>
+          <Text style={[styles.sectionHeader, { color: theme.primaryText, marginBottom: 20 }]}>Library Stats</Text>
+          
+          <View style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+            <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Songs</Text>
+            <Text style={{ color: theme.secondaryText, fontSize: 16 }}>{library?.length || 0}</Text>
+          </View>
+          
+          <View style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+            <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Albums</Text>
+            <Text style={{ color: theme.secondaryText, fontSize: 16 }}>{libraryAlbums?.length || 0}</Text>
+          </View>
+          
+          <View style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+            <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Artists</Text>
+            <Text style={{ color: theme.secondaryText, fontSize: 16 }}>{libraryArtists?.length || 0}</Text>
+          </View>
+        </View>
+
+        <View style={styles.settingsSection}>
+          <Text style={[styles.sectionHeader, { color: theme.primaryText, marginBottom: 20 }]}>Device Storage</Text>
+          
+          <View style={[styles.settingsRow, { backgroundColor: theme.card, flexDirection: 'column', alignItems: 'flex-start', gap: 12 }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Prana</Text>
+              <Text style={{ color: theme.primaryText }}>{formatBytes(storageInfo.appUsed)}</Text>
+            </View>
+
+            <View style={{ height: 8, width: '100%', backgroundColor: theme.border, borderRadius: 4, overflow: 'hidden', flexDirection: 'row' }}>
+              {/* App Usage */}
+              <View 
+                style={{ 
+                  height: '100%', 
+                  width: `${percentages.app}%`, 
+                  backgroundColor: theme.primaryText,
+                }} 
+              />
+              {/* Other Usage */}
+              <View 
+                style={{ 
+                  height: '100%', 
+                  width: `${percentages.other}%`, 
+                  backgroundColor: theme.secondaryText,
+                  opacity: 0.3
+                }} 
+              />
+            </View>
+            
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+               <View style={{ flexDirection: 'row', gap: 12 }}>
+                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.primaryText }} />
+                    <Text style={{ color: theme.secondaryText, fontSize: 12 }}>Prana</Text>
+                 </View>
+                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.secondaryText, opacity: 0.3 }} />
+                    <Text style={{ color: theme.secondaryText, fontSize: 12 }}>Other</Text>
+                 </View>
+               </View>
+               <Text style={{ color: theme.secondaryText, fontSize: 12 }}>
+                 Free: {formatBytes(storageInfo.free)}
+               </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={[styles.settingsSection, { marginTop: 20 }]}>
+          <Pressable
+            style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border, justifyContent: 'center' }]}
+            onPress={handleClearData}
+          >
+             <Text style={{ color: theme.error, fontSize: 17, fontWeight: '600' }}>Clear All Data</Text>
+          </Pressable>
+          <Text style={{ paddingHorizontal: 16, color: theme.secondaryText, fontSize: 12, marginTop: 8, textAlign: 'center' }}>
+            This will delete all downloaded music, imported files, and reset your library.
+          </Text>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+// Appearance Page
+function AppearancePage({ route, navigation }) {
+  const { theme } = route.params;
+  const [showThemeMenu, setShowThemeMenu] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
+  const [menuAnim] = useState(new Animated.Value(0));
+  const themeRowRef = useRef(null);
+  const { height: screenHeight } = useWindowDimensions();
+
+  const openThemeMenu = () => {
+    if (themeRowRef.current) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      themeRowRef.current.measure((x, y, width, height, pageX, pageY) => {
+        const MENU_HEIGHT = 180; // Approximate height
+        // Align vertically with the row, slightly overlapping or below
+        let finalY = pageY + 10; 
+        
+        // Check bottom overflow
+        if (finalY + MENU_HEIGHT > screenHeight - 20) {
+          finalY = pageY - MENU_HEIGHT + 20;
+        }
+
+        // Align right side of menu with right side of row (minus padding)
+        // or just left align if that's how track menu works. 
+        // Track menu uses: left: menuPosition.x (which is pageX).
+        // Let's stick to pageX to align with the start of the row.
+        setMenuPosition({ x: pageX + 20, y: finalY });
+        
+        setShowThemeMenu(true);
+        Animated.spring(menuAnim, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 10,
+        }).start();
+      });
+    }
+  };
+
+  const closeThemeMenu = () => {
+    Animated.timing(menuAnim, {
+      toValue: 0,
+      duration: 150,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowThemeMenu(false);
+    });
+  };
+
+  return (
+    <View style={[styles.settingsPageContainer, { backgroundColor: theme.background }]}>
+      {/* Header */}
+      <View style={styles.settingsPageHeader}>
+        <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.backButtonContainer}>
+          <Ionicons name="chevron-back" size={32} color={theme.primaryText} />
+        </Pressable>
+        <Text style={[styles.settingsPageTitle, { color: theme.primaryText }]}>Appearance</Text>
+      </View>
+
+      <ScrollView style={{ flex: 1 }}>
+        <View style={styles.settingsSection}>
+          <Text style={[styles.sectionHeader, { color: theme.primaryText, marginBottom: 20 }]}>Display</Text>
+          
+          <Pressable
+            ref={themeRowRef}
+            style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
+            onPress={openThemeMenu}
+          >
+            <View style={styles.settingsRowLeft}>
+              <Ionicons name="color-palette-outline" size={24} color={theme.primaryText} />
+              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Theme</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={{ color: theme.secondaryText, fontSize: 16 }}>Light</Text>
+              <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
+            </View>
+          </Pressable>
+        </View>
+      </ScrollView>
+
+      {/* Theme Context Menu */}
+      {showThemeMenu && (
+        <>
+           <Pressable style={styles.transparentBackdrop} onPress={closeThemeMenu} />
+           <Animated.View 
+             style={[
+               styles.albumContextMenu, 
+               { 
+                 width: 250, 
+                 backgroundColor: theme.card, 
+                 borderColor: theme.border,
+                 position: 'absolute',
+                 left: menuPosition.x,
+                 top: menuPosition.y,
+                 opacity: menuAnim,
+                 transform: [{
+                   scale: menuAnim.interpolate({
+                     inputRange: [0, 1],
+                     outputRange: [0.95, 1],
+                   })
+                 }]
+               }
+             ]}
+           >
+             <Pressable style={styles.contextMenuItem} onPress={closeThemeMenu}>
+               <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Light</Text>
+               <Ionicons name="checkmark" size={20} color={theme.accent} />
+             </Pressable>
+             <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
+             <Pressable style={styles.contextMenuItem} disabled={true}>
+               <Text style={[styles.contextMenuText, { color: theme.secondaryText, opacity: 0.5 }]}>Dark</Text>
+             </Pressable>
+             <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
+             <Pressable style={styles.contextMenuItem} disabled={true}>
+               <Text style={[styles.contextMenuText, { color: theme.secondaryText, opacity: 0.5 }]}>Auto</Text>
+             </Pressable>
+           </Animated.View>
+        </>
+      )}
+    </View>
+  );
+}
+
 // Settings Page
 function SettingsPage({ route, navigation }) {
-  const { theme } = route.params;
+  const { theme, library, libraryArtists, libraryAlbums, clearAllData } = route.params;
 
   return (
     <View style={[styles.settingsPageContainer, { backgroundColor: theme.background }]}>
@@ -537,11 +837,55 @@ function SettingsPage({ route, navigation }) {
         <View style={styles.settingsSection}>
           <Pressable
             style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
+            onPress={() => navigation.navigate('Appearance', { theme })}
+          >
+            <View style={styles.settingsRowLeft}>
+              <Ionicons name="color-palette-outline" size={24} color={theme.primaryText} />
+              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Appearance</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
+          </Pressable>
+
+          <Pressable
+            style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
+            onPress={() => navigation.navigate('Cache', { theme, library, libraryArtists, libraryAlbums, clearAllData })}
+          >
+            <View style={styles.settingsRowLeft}>
+              <Ionicons name="stats-chart-outline" size={24} color={theme.primaryText} />
+              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Storage & Cache</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
+          </Pressable>
+
+          <Pressable
+            style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
             onPress={() => navigation.navigate('AdvancedCatalog', { theme })}
           >
             <View style={styles.settingsRowLeft}>
               <Ionicons name="folder-outline" size={24} color={theme.primaryText} />
               <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Advanced Catalog</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
+          </Pressable>
+
+          <Pressable
+            style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
+            onPress={() => navigation.navigate('ImportSpotifyPlaylist', { theme, addPlaylist: route.params.addPlaylist, showNotification: route.params.showNotification })}
+          >
+            <View style={styles.settingsRowLeft}>
+              <Ionicons name="musical-notes-outline" size={24} color={theme.primaryText} />
+              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Import Spotify Playlist</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
+          </Pressable>
+
+          <Pressable
+            style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
+            onPress={() => navigation.navigate('About', { theme })}
+          >
+            <View style={styles.settingsRowLeft}>
+              <Ionicons name="information-circle-outline" size={24} color={theme.primaryText} />
+              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>About</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
           </Pressable>
@@ -615,17 +959,91 @@ function SelfHostedCollectionPage({ route, navigation }) {
   );
 }
 
+// About Page
+function AboutPage({ route, navigation }) {
+  const { theme } = route.params;
+
+  return (
+    <View style={[styles.settingsPageContainer, { backgroundColor: theme.background }]}>
+      {/* Header */}
+      <View style={styles.settingsPageHeader}>
+        <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.backButtonContainer}>
+          <Ionicons name="chevron-back" size={32} color={theme.primaryText} />
+        </Pressable>
+        <Text style={[styles.settingsPageTitle, { color: theme.primaryText }]}>About</Text>
+      </View>
+
+      <View style={{ flex: 1, padding: 24, alignItems: 'center', justifyContent: 'center' }}>
+        <Image 
+          source={require('./assets/adaptive-icon.png')} 
+          style={{ width: 120, height: 120, marginBottom: 24, borderRadius: 24 }} 
+        />
+        <Text style={[styles.title, { color: theme.primaryText, marginBottom: 16, textAlign: 'center' }]}>Prana</Text>
+        <Text style={[styles.secondaryText, { color: theme.secondaryText, textAlign: 'center', fontSize: 16, lineHeight: 24 }]}>
+          This is the closed testing of Prana, modular advanced music cataloging and playing app.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function AppContent() {
   const colorScheme = useColorScheme();
   const theme = colors[colorScheme] || colors.dark;
   const insets = useSafeAreaInsets();
 
-  const [query, setQuery] = useState('Radiohead');
+  const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [artists, setArtists] = useState([]);
   const [tracks, setTracks] = useState([]);
   const [albums, setAlbums] = useState([]);
   const [error, setError] = useState(null);
+
+  const handleSearch = async (q) => {
+    if (!q || !q.trim()) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const [artistResults, trackResults, albumResults] = await Promise.all([
+        searchLastfmArtists(q, { limit: 4 }),
+        searchLastfmTracks(q, { limit: 10 }),
+        searchLastfmAlbums(q, { limit: 10 }),
+      ]);
+
+      setArtists(artistResults);
+      setTracks(trackResults);
+      setAlbums(albumResults);
+    } catch (err) {
+      setError('Failed to fetch results');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Real-time search effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (query.trim()) {
+        handleSearch(query);
+      } else {
+        setArtists([]);
+        setAlbums([]);
+        setTracks([]);
+      }
+    }, 500); // Debounce 500ms
+
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const addToRecentSearches = (q) => {
+    if (!q || !q.trim()) return;
+    setRecentSearches((prev) => {
+      const filtered = prev.filter((s) => s !== q);
+      return [q, ...filtered].slice(0, 10);
+    });
+  };
 
   // navigation/state for detail views
   const [view, setView] = useState('search'); // 'search' | 'artist'
@@ -745,6 +1163,7 @@ function AppContent() {
 
   // Tidal streaming toggle for unowned tracks
   const [useTidalForUnowned, setUseTidalForUnowned] = useState(false);
+  const [shouldAutoPlay, setShouldAutoPlay] = useState(true);
   const queueNotificationTimer = useRef(null);
   const queueNotificationAnim = useRef(new Animated.Value(0)).current;
   const miniPlayerAnim = useRef(new Animated.Value(0)).current;
@@ -812,11 +1231,82 @@ function AppContent() {
     }
   };
 
+  const loadPlayerState = async () => {
+    try {
+      const fileInfo = await FileSystem.getInfoAsync(PLAYER_STATE_FILE);
+      if (fileInfo.exists) {
+        const json = await FileSystem.readAsStringAsync(PLAYER_STATE_FILE);
+        const state = JSON.parse(json || '{}');
+        
+        if (state.currentTrack) {
+          // Don't auto-play when restoring session
+          setShouldAutoPlay(false);
+          setCurrentTrack(state.currentTrack);
+          if (state.currentQueue) setCurrentQueue(state.currentQueue);
+          if (state.currentQueueIndex !== undefined) setCurrentQueueIndex(state.currentQueueIndex);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load player state', e);
+    }
+  };
+
+  const savePlayerState = async (state) => {
+    try {
+      await FileSystem.writeAsStringAsync(PLAYER_STATE_FILE, JSON.stringify(state));
+    } catch (e) {
+      console.warn('Failed to save player state', e);
+    }
+  };
+
+  // Auto-save player state
+  useEffect(() => {
+    if (currentTrack) {
+      savePlayerState({
+        currentTrack,
+        currentQueue,
+        currentQueueIndex
+      });
+    }
+  }, [currentTrack, currentQueue, currentQueueIndex]);
+
   const saveSettings = async (newSettings) => {
     try {
       await FileSystem.writeAsStringAsync(SETTINGS_FILE, JSON.stringify(newSettings));
     } catch (e) {
       console.warn('Failed to save settings', e);
+    }
+  };
+
+  const clearAllData = async () => {
+    try {
+      setLibrary([]);
+      setLibraryArtists([]);
+      setPlaylists([]);
+      setAlbums([]);
+      setTracks([]);
+      setArtists([]);
+      
+      // Delete the library folder (metadata)
+      await FileSystem.deleteAsync(LIBRARY_DIR, { idempotent: true });
+      await FileSystem.makeDirectoryAsync(LIBRARY_DIR, { intermediates: true });
+
+      // Delete media files in the root document directory
+      const files = await FileSystem.readDirectoryAsync(FileSystem.documentDirectory);
+      for (const file of files) {
+        if (file !== 'library' && file !== 'RCTAsyncLocalStorage_V1') { // Skip system/library folders
+           const fileUri = FileSystem.documentDirectory + file;
+           const info = await FileSystem.getInfoAsync(fileUri);
+           if (!info.isDirectory) {
+             await FileSystem.deleteAsync(fileUri, { idempotent: true });
+           }
+        }
+      }
+      
+      Alert.alert('Success', 'All data has been cleared.');
+    } catch (e) {
+      console.warn('Failed to clear data', e);
+      Alert.alert('Error', 'Failed to clear data.');
     }
   };
 
@@ -898,6 +1388,7 @@ function AppContent() {
     };
     configureAudio();
     loadSettings(); // Load settings on app start
+    loadPlayerState(); // Restore player state
     loadLibrary();
     loadPlaylists();
   }, []);
@@ -985,6 +1476,47 @@ function AppContent() {
       return next;
     });
   };
+
+  const toggleFavorite = (track) => {
+    if (!track) return;
+    
+    setLibrary((prev) => {
+      const existingIndex = prev.findIndex(t => 
+        (t.uri && track.uri && t.uri === track.uri) || 
+        (t.name === track.name && (t.artist === track.artist || t.artist?.name === track.artist?.name))
+      );
+
+      let next;
+      if (existingIndex >= 0) {
+        // Update existing
+        next = [...prev];
+        next[existingIndex] = {
+          ...next[existingIndex],
+          favorite: !next[existingIndex].favorite
+        };
+      } else {
+        // Add new with favorite=true
+        const newTrack = {
+          ...track,
+          favorite: true,
+          dateAdded: Date.now(),
+        };
+        next = [...prev, newTrack];
+      }
+      saveLibrary(next);
+      return next;
+    });
+  };
+
+  // Derived state for current track favorite status
+  const isCurrentTrackFavorite = useMemo(() => {
+    if (!currentTrack || !library) return false;
+    const found = library.find(t => 
+      (t.uri && currentTrack.uri && t.uri === currentTrack.uri) || 
+      (t.name === currentTrack.name && (t.artist === currentTrack.artist || t.artist?.name === currentTrack.artist?.name))
+    );
+    return found ? !!found.favorite : false;
+  }, [currentTrack, library]);
 
   const deleteAlbum = async (albumName) => {
     try {
@@ -1165,17 +1697,6 @@ function AppContent() {
     }
   };
 
-  const addToRecentSearches = (searchTerm) => {
-    const trimmed = searchTerm.trim();
-    if (!trimmed) return;
-
-    setRecentSearches(prev => {
-      // Remove if already exists
-      const filtered = prev.filter(item => item !== trimmed);
-      // Add to beginning, limit to 10 items
-      return [trimmed, ...filtered].slice(0, 10);
-    });
-  };
 
   const clearRecentSearches = () => {
     setRecentSearches([]);
@@ -1285,9 +1806,28 @@ function AppContent() {
   const openTrackPlayer = (track, queue = null, index = 0, expandPlayer = true) => {
     if (!track) return;
     
+    // Check if modules are disabled and track is not owned
+    if (!useTidalForUnowned) {
+      // Check if track is owned (has isLocal flag or exists in library)
+      const isOwned = track.isLocal || library.some(libTrack => {
+        const trackName = (track.name || '').toLowerCase().trim();
+        const libName = (libTrack.name || '').toLowerCase().trim();
+        const trackArtist = (track.artist?.name || track.artist || '').toLowerCase().trim();
+        const libArtist = (libTrack.artist?.name || libTrack.artist || '').toLowerCase().trim();
+        return trackName === libName && trackArtist === libArtist && libTrack.isLocal;
+      });
+
+      if (!isOwned) {
+        // Show notification that track is not imported
+        showQueueNotification("You don't have this track imported!", 'error');
+        return; // Prevent playback
+      }
+    }
+    
     // Update last played
     updateTrackLastPlayed(track);
 
+    setShouldAutoPlay(true); // Ensure auto-play is enabled for user-initiated playback
     setCurrentTrack(track);
     if (queue && Array.isArray(queue)) {
       setCurrentQueue(queue);
@@ -1302,6 +1842,7 @@ function AppContent() {
   };
 
   const handleTrackChange = (newTrack, newIndex, newQueue = null) => {
+    setShouldAutoPlay(true); // Ensure auto-play continues for queue changes
     setCurrentTrack(newTrack);
     setCurrentQueueIndex(newIndex);
     if (newQueue && Array.isArray(newQueue)) {
@@ -1315,14 +1856,14 @@ function AppContent() {
     setCurrentTrack(newQueue[newIndex]);
   };
 
-  const showQueueNotification = (message) => {
+  const showQueueNotification = (message, type = 'success') => {
     // Clear existing timer
     if (queueNotificationTimer.current) {
       clearTimeout(queueNotificationTimer.current);
     }
 
-    // Show notification
-    setQueueNotification(message);
+    // Show notification with type
+    setQueueNotification({ message, type });
 
     // Animate in (slide up + fade in)
     Animated.spring(queueNotificationAnim, {
@@ -1449,45 +1990,54 @@ function AppContent() {
     }
   };
 
+
+  const handleTabPress = (tab) => {
+    setCurrentTab(tab);
+    // If we are deep in the stack (index > 0), reset to root to close all stacked pages.
+    // This ensures we are at the "bottom" layer of the tab and it's not backable.
+    if (navigationRef) {
+      const state = navigationRef.getRootState();
+      if (state && state.index > 0) {
+        navigationRef.reset({
+          index: 0,
+          routes: [{ name: 'MainTabs' }],
+        });
+      }
+    }
+  };
+
   const renderSearchTab = () => (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
-      {/* Header */}
       <View style={styles.searchHeader}>
         <Text style={[styles.searchTitle, { color: theme.primaryText }]}>Search</Text>
       </View>
 
-      {/* Search Bar */}
       <View style={styles.searchBarContainer}>
-        <View style={[styles.searchBar, { backgroundColor: theme.inputBackground }]}>
+        <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
           <Ionicons name="search" size={20} color={theme.secondaryText} style={styles.searchIcon} />
           <TextInput
             style={[styles.searchInput, { color: theme.primaryText }]}
-            placeholder="Artists, songs, lyrics, and more"
+            placeholder="Search for songs, albums, artists..."
             placeholderTextColor={theme.secondaryText}
             value={query}
             onChangeText={setQuery}
             returnKeyType="search"
-            onSubmitEditing={onSearch}
+            onSubmitEditing={() => addToRecentSearches(query)}
           />
           {query.length > 0 && (
             <Pressable onPress={() => setQuery('')} style={styles.clearButton}>
-              <Ionicons name="close-circle" size={20} color={theme.secondaryText} />
+              <Ionicons name="close-circle" size={18} color={theme.secondaryText} />
             </Pressable>
           )}
         </View>
       </View>
 
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: Math.max(100, insets.bottom + 80) }}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView contentContainerStyle={styles.resultsContent}>
         {query.length === 0 ? (
           <>
-            {/* Recent Searches - only show if there are any */}
             {recentSearches.length > 0 && (
               <View style={styles.sectionContainer}>
-                <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Recent searches</Text>
+                <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Recent</Text>
                 <View style={styles.recentSearches}>
                   {recentSearches.map((search, index) => (
                     <Pressable
@@ -1495,7 +2045,7 @@ function AppContent() {
                       style={styles.recentSearchItem}
                       onPress={() => {
                         setQuery(search);
-                        onSearch();
+                        addToRecentSearches(search);
                       }}
                     >
                       <Ionicons name="time-outline" size={20} color={theme.secondaryText} />
@@ -1576,6 +2126,7 @@ function AppContent() {
             addToLibrary,
             useTidalForUnowned,
             playerControls,
+            clearAllData,
           },
         }}
       />
@@ -1890,8 +2441,11 @@ function AppContent() {
           </RootStack.Screen>
           <RootStack.Screen name="Artist" component={ArtistPage} />
           <RootStack.Screen name="Settings" component={SettingsPage} />
+          <RootStack.Screen name="Appearance" component={AppearancePage} />
+          <RootStack.Screen name="Cache" component={CachePage} />
           <RootStack.Screen name="AdvancedCatalog" component={AdvancedCatalogPage} />
           <RootStack.Screen name="SelfHostedCollection" component={SelfHostedCollectionPage} />
+          <RootStack.Screen name="About" component={AboutPage} />
           <RootStack.Screen
             name="Modules"
             children={(props) => (
@@ -1915,6 +2469,7 @@ function AppContent() {
           <RootStack.Screen name="LibraryPlaylists" component={LibraryPlaylists} />
           <RootStack.Screen name="PlaylistPage" component={PlaylistPage} />
           <RootStack.Screen name="AddPlaylist" component={AddPlaylist} />
+          <RootStack.Screen name="ImportSpotifyPlaylist" component={ImportSpotifyPlaylist} />
         </RootStack.Navigator>
       </NavigationContainer>
 
@@ -1938,9 +2493,13 @@ function AppContent() {
             }
           ]}
         >
-          <Ionicons name="checkmark-circle" size={20} color={theme.primaryText} />
+          <Ionicons 
+            name={queueNotification.type === 'error' ? 'alert-circle' : 'checkmark-circle'} 
+            size={20} 
+            color={queueNotification.type === 'error' ? theme.error : theme.primaryText} 
+          />
           <Text style={[styles.queueNotificationText, { color: theme.primaryText }]} numberOfLines={1}>
-            {queueNotification}
+            {queueNotification.message}
           </Text>
         </Animated.View>
       )}
@@ -1948,7 +2507,7 @@ function AppContent() {
 
       {/* Mini player when a track is active but full player is minimized */}
       {currentTrack && (() => {
-        const isSettingsPage = ['Settings', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules'].includes(currentRoute);
+        const isSettingsPage = ['Settings', 'Appearance', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules', 'ImportSpotifyPlaylist', 'About'].includes(currentRoute);
         const isVisible = !isPlayerExpanded && !isSettingsPage;
         const miniImageUrl = pickImageUrl(currentTrack.image, 'large');
         
@@ -2010,7 +2569,7 @@ function AppContent() {
 
       {/* Bottom tab bar - animated slide down */}
       <Animated.View
-        pointerEvents={['Settings', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules'].includes(currentRoute) ? 'none' : 'auto'}
+        pointerEvents={['Settings', 'Appearance', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules', 'ImportSpotifyPlaylist', 'About'].includes(currentRoute) ? 'none' : 'auto'}
         style={[
           styles.tabBar,
           {
@@ -2032,7 +2591,7 @@ function AppContent() {
       >
         <Pressable
           style={styles.tabItem}
-          onPress={() => setCurrentTab('home')}
+          onPress={() => handleTabPress('home')}
         >
           <Ionicons
             name={currentTab === 'home' ? 'home' : 'home-outline'}
@@ -2052,7 +2611,7 @@ function AppContent() {
 
         <Pressable
           style={styles.tabItem}
-          onPress={() => setCurrentTab('search')}
+          onPress={() => handleTabPress('search')}
         >
           <Ionicons
             name={currentTab === 'search' ? 'search' : 'search-outline'}
@@ -2072,7 +2631,7 @@ function AppContent() {
 
         <Pressable
           style={styles.tabItem}
-          onPress={() => setCurrentTab('library')}
+          onPress={() => handleTabPress('library')}
         >
           <Ionicons
             name={currentTab === 'library' ? 'library' : 'library-outline'}
@@ -2103,6 +2662,9 @@ function AppContent() {
           theme={theme}
           setPlayerControls={setPlayerControls}
           isVisible={isPlayerExpanded}
+          toggleFavorite={toggleFavorite}
+          isFavorite={isCurrentTrackFavorite}
+          shouldPlay={shouldAutoPlay}
         />
       )}
       </View>
@@ -2206,7 +2768,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    bottom: 136, // above mini player (72 + 64)
+    bottom: 180, // clearly above mini player
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,

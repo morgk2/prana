@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
-import { getArtistTopTracks, getArtistTopAlbums, getAlbumInfo } from '../api/lastfm';
+import { getArtistTopTracks, getArtistTopAlbums, getAlbumInfo, getArtistInfo, getRelatedArtists } from '../api/lastfm';
 import * as FileSystem from 'expo-file-system/legacy';
 
 function pickImageUrl(images, preferredSize = 'large') {
@@ -36,12 +36,15 @@ export default function ArtistPage({ route, navigation }) {
 
   const [topTracks, setTopTracks] = useState([]);
   const [topAlbums, setTopAlbums] = useState([]);
+  const [artistInfo, setArtistInfo] = useState(null);
+  const [similarArtists, setSimilarArtists] = useState([]);
   const [loading, setLoading] = useState(initialLoading || false);
   const [error, setError] = useState(null);
   const [showOwnedOnly, setShowOwnedOnly] = useState(false);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuType, setContextMenuType] = useState('filter'); // 'filter' | 'remove' | 'album'
   const [selectedAlbum, setSelectedAlbum] = useState(null);
+  const [expandedTracks, setExpandedTracks] = useState(false);
 
   // Check if artist is already saved in the passed libraryArtists
   const isSavedInitially = libraryArtists.some(a => a.name === artist.name);
@@ -254,13 +257,17 @@ export default function ArtistPage({ route, navigation }) {
       setError(null);
 
       try {
-        const [tracks, albums] = await Promise.all([
+        const [tracks, albums, info, similar] = await Promise.all([
           getArtistTopTracks(artist.name, { limit: 30 }),
           getArtistTopAlbums(artist.name, { limit: 10 }),
+          getArtistInfo(artist.name),
+          getRelatedArtists(artist.name, { limit: 10 }),
         ]);
 
         setTopTracks(tracks ?? []);
         setTopAlbums(albums ?? []);
+        setArtistInfo(info);
+        setSimilarArtists(similar ?? []);
       } catch (e) {
         setError(e.message ?? 'Failed to load artist data');
       } finally {
@@ -411,6 +418,25 @@ export default function ArtistPage({ route, navigation }) {
     );
   };
 
+  // Find exact match in library to play local file if available
+  const getLocalTrack = (track) => {
+    if (!library) return null;
+    const targetName = (track.name || '').toLowerCase().trim();
+    const targetArtist = (track.artist?.name || track.artist || '').toLowerCase().trim();
+
+    return library.find(libTrack => {
+      const libName = (libTrack.name || '').toLowerCase().trim();
+      const libArtist = (libTrack.artist?.name || libTrack.artist || libTrack.albumArtist || '').toLowerCase().trim();
+      return libName === targetName && libArtist === targetArtist && libTrack.isLocal;
+    });
+  };
+
+  const handleTrackPress = (track) => {
+    if (!onTrackPress) return;
+    const localVersion = getLocalTrack(track);
+    onTrackPress(localVersion || track);
+  };
+
   const renderContent = () => {
     if (loading) {
       return renderLoadingSkeleton();
@@ -428,13 +454,13 @@ export default function ArtistPage({ route, navigation }) {
         {displayTracks.length > 0 && (
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Popular Tracks</Text>
-            {displayTracks.map((t, index) => {
+            {displayTracks.slice(0, expandedTracks ? undefined : 5).map((t, index) => {
               const imageUrl = pickImageUrl(t.image, 'large');
               const imported = isTrackImported(t);
               return (
                 <Pressable
                   key={`artist-track-${t.mbid || t.name}-${index}`}
-                  onPress={() => onTrackPress && onTrackPress(t)}
+                  onPress={() => handleTrackPress(t)}
                 >
                   <View style={[styles.row, { borderBottomColor: theme.border }]}>
                     {imageUrl ? (
@@ -450,6 +476,12 @@ export default function ArtistPage({ route, navigation }) {
                         {t.artist?.name ?? t.artist}
                       </Text>
                     </View>
+                    {(() => {
+                        const localTrack = getLocalTrack(t);
+                        return localTrack?.favorite ? (
+                            <Ionicons name="star" size={16} color={theme.primaryText} style={{ marginLeft: 8 }} />
+                        ) : null;
+                    })()}
                     {imported && (
                       <Ionicons
                         name="checkmark-circle"
@@ -462,56 +494,117 @@ export default function ArtistPage({ route, navigation }) {
                 </Pressable>
               );
             })}
+            {!expandedTracks && displayTracks.length > 5 && (
+              <Pressable
+                style={styles.viewMoreButton}
+                onPress={() => setExpandedTracks(true)}
+              >
+                <Text style={[styles.viewMoreText, { color: theme.secondaryText }]}>View more</Text>
+                <Ionicons name="chevron-down" size={16} color={theme.secondaryText} style={{ marginLeft: 4 }} />
+              </Pressable>
+            )}
           </View>
         )}
         {displayAlbums.length > 0 && (
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Albums</Text>
-            {displayAlbums.map((a, index) => {
-              const imageUrl = pickImageUrl(a.image, 'large');
-              const imported = isAlbumImported(a);
-              return (
-                <Pressable 
-                    key={`artist-album-${a.mbid || a.name}-${index}`}
-                    onPress={() => openAlbumPage && openAlbumPage(a)}
-                    onLongPress={() => {
-                        if (!imported) {
-                            openContextMenu('album', a);
-                        }
-                    }}
-                    delayLongPress={200}
-                >
-                <View style={[styles.row, { borderBottomColor: theme.border }]}>
-                  {imageUrl ? (
-                    <Image source={{ uri: imageUrl }} style={styles.squareThumb} />
-                  ) : (
-                    <View style={[styles.squareThumb, { backgroundColor: theme.card }]} />
-                  )}
-                  <View style={styles.rowText}>
-                    <Text style={[styles.primaryText, { color: theme.primaryText }]} numberOfLines={1}>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingRight: 16 }}
+            >
+              {displayAlbums.map((a, index) => {
+                const imageUrl = pickImageUrl(a.image, 'extralarge') || pickImageUrl(a.image, 'large');
+                const imported = isAlbumImported(a);
+                return (
+                  <Pressable 
+                      key={`artist-album-${a.mbid || a.name}-${index}`}
+                      onPress={() => openAlbumPage && openAlbumPage(a)}
+                      onLongPress={() => {
+                          if (!imported) {
+                              openContextMenu('album', a);
+                          }
+                      }}
+                      delayLongPress={200}
+                      style={styles.albumCard}
+                  >
+                    {imageUrl ? (
+                      <Image source={{ uri: imageUrl }} style={styles.albumImage} />
+                    ) : (
+                      <View style={[styles.albumImage, { backgroundColor: theme.card, justifyContent: 'center', alignItems: 'center' }]}>
+                        <Ionicons name="musical-note" size={40} color={theme.secondaryText} />
+                      </View>
+                    )}
+                    
+                    <Text style={[styles.albumTitle, { color: theme.primaryText }]} numberOfLines={1}>
                       {a.name}
                     </Text>
-                    <Text style={[styles.secondaryText, { color: theme.secondaryText }]} numberOfLines={1}>
+                    <Text style={[styles.albumSubtitle, { color: theme.secondaryText }]} numberOfLines={1}>
                       {a.artist?.name ?? a.artist}
                     </Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    {imported && (
-                        <Ionicons
-                        name="checkmark-circle"
-                        size={20}
-                        color={theme.primaryText}
-                        style={{ marginRight: 8 }}
-                        />
+
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                      {imported && (
+                          <Ionicons
+                          name="checkmark-circle"
+                          size={16}
+                          color={theme.primaryText}
+                          style={{ marginRight: 8 }}
+                          />
+                      )}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* Similar Artists Section (replacing About) */}
+        {similarArtists.length > 0 && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Fans also like</Text>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingRight: 16 }}
+            >
+              {similarArtists.map((simArtist, index) => {
+                const imageUrl = pickImageUrl(simArtist.image, 'large');
+                return (
+                  <Pressable 
+                    key={`similar-${simArtist.mbid || simArtist.name}-${index}`}
+                    style={styles.similarArtistCard}
+                    onPress={() => {
+                       // Recursive navigation: push same screen with new artist
+                       navigation.push('ArtistPage', { 
+                         artist: simArtist, 
+                         theme,
+                         library,
+                         libraryArtists,
+                         onTrackPress, 
+                         openAlbumPage, 
+                         addToLibrary
+                       });
+                    }}
+                  >
+                    {imageUrl ? (
+                      <Image source={{ uri: imageUrl }} style={styles.roundArtistImage} />
+                    ) : (
+                      <View style={[styles.roundArtistImage, { backgroundColor: theme.card, justifyContent: 'center', alignItems: 'center' }]}>
+                         <Ionicons name="person" size={40} color={theme.secondaryText} />
+                      </View>
                     )}
-                    <Pressable onPress={() => openContextMenu('album', a)} hitSlop={10} style={{ padding: 4 }}>
-                        <Ionicons name="ellipsis-vertical" size={20} color={theme.secondaryText} />
-                    </Pressable>
-                  </View>
-                </View>
-                </Pressable>
-              );
-            })}
+                    <Text 
+                      style={[styles.similarArtistName, { color: theme.primaryText }]} 
+                      numberOfLines={2}
+                    >
+                      {simArtist.name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
           </View>
         )}
       </>
@@ -845,5 +938,50 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: 'bold',
     marginBottom: 12,
+  },
+  viewMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  viewMoreText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  albumCard: {
+    width: 150,
+    marginRight: 16,
+  },
+  albumImage: {
+    width: 150,
+    height: 150,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  albumTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  albumSubtitle: {
+    fontSize: 12,
+  },
+  similarArtistCard: {
+    width: 100,
+    marginRight: 16,
+    alignItems: 'center',
+  },
+  roundArtistImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginBottom: 8,
+  },
+  similarArtistName: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

@@ -3,7 +3,16 @@ import { View, Text, ScrollView, Pressable, Image, StyleSheet, FlatList } from '
 import { Ionicons } from '@expo/vector-icons';
 
 export default function LibraryPlaylists({ route, navigation }) {
-    const { theme, playlists = [], onPlaylistPress } = route.params;
+    const { theme, playlists = [], library = [], onPlaylistPress } = route.params;
+
+    const likedSongs = library.filter(t => t.favorite);
+    const likedSongsPlaylist = {
+        id: 'liked-songs',
+        name: 'Liked Songs',
+        tracks: likedSongs,
+        description: 'Your favorite tracks',
+        isDefault: true
+    };
 
     const renderPlaylistItem = ({ item }) => {
         return (
@@ -45,6 +54,24 @@ export default function LibraryPlaylists({ route, navigation }) {
                     <Ionicons name="add" size={28} color={theme.primaryText} />
                 </Pressable>
             </View>
+
+            <Pressable
+                style={[styles.playlistItem, { borderBottomColor: theme.border }]}
+                onPress={() => navigation.navigate('PlaylistPage', { playlist: likedSongsPlaylist, theme, ...route.params })}
+            >
+                <View style={[styles.artwork, { backgroundColor: theme.primary }]}>
+                    <Ionicons name="star" size={24} color="#000000" />
+                </View>
+                <View style={styles.playlistInfo}>
+                    <Text style={[styles.playlistTitle, { color: theme.primaryText }]} numberOfLines={1}>
+                        Liked Songs
+                    </Text>
+                    <Text style={[styles.playlistSubtitle, { color: theme.secondaryText }]} numberOfLines={1}>
+                        {likedSongs.length} songs
+                    </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
+            </Pressable>
 
             <FlatList
                 data={playlists}

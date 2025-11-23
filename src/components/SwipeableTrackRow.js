@@ -4,7 +4,7 @@ import { RectButton } from 'react-native-gesture-handler';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function SwipeableTrackRow({ children, onSwipeLeft, theme }) {
+export default function SwipeableTrackRow({ children, onSwipeLeft, theme, enabled = true }) {
     const swipeableRef = useRef(null);
 
     const handleAddToQueue = () => {
@@ -42,6 +42,7 @@ export default function SwipeableTrackRow({ children, onSwipeLeft, theme }) {
     return (
         <Swipeable
             ref={swipeableRef}
+            enabled={enabled}
             renderLeftActions={renderLeftActions}
             onSwipeableOpen={(direction) => {
                 if (direction === 'left') {

@@ -162,7 +162,7 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
   );
 }
 
-export default function SongPlayer({ isVisible = true, track, onClose, theme, setPlayerControls, onArtistPress, queue = [], queueIndex = 0, onTrackChange, onQueueReorder }) {
+export default function SongPlayer({ isVisible = true, track, onClose, theme, setPlayerControls, onArtistPress, queue = [], queueIndex = 0, onTrackChange, onQueueReorder, toggleFavorite, isFavorite, shouldPlay = true }) {
   const insets = useSafeAreaInsets();
   const colors = {
     primary: '#000000',
@@ -476,7 +476,7 @@ export default function SongPlayer({ isVisible = true, track, onClose, theme, se
         try {
           const { sound } = await Audio.Sound.createAsync(
             { uri },
-            { shouldPlay: true },
+            { shouldPlay: shouldPlay },
             (status) => {
               if (!status.isLoaded) return;
 
@@ -752,9 +752,22 @@ export default function SongPlayer({ isVisible = true, track, onClose, theme, se
             showLyrics && { height: 0, opacity: 0, overflow: 'hidden', marginTop: 0, marginBottom: 0 }
           ]}
         >
-          <Text style={styles.title} numberOfLines={1}>{track.name}</Text>
-          <Pressable onPress={() => onArtistPress && onArtistPress(track.artist?.name ?? track.artist)}>
-            <Text style={styles.artist} numberOfLines={1}>{track.artist?.name ?? track.artist}</Text>
+          <View style={{ flex: 1, marginRight: 16 }}>
+            <Text style={styles.title} numberOfLines={1}>{track.name}</Text>
+            <Pressable onPress={() => onArtistPress && onArtistPress(track.artist?.name ?? track.artist)}>
+              <Text style={styles.artist} numberOfLines={1}>{track.artist?.name ?? track.artist}</Text>
+            </Pressable>
+          </View>
+          <Pressable 
+            onPress={() => toggleFavorite && toggleFavorite(track)}
+            hitSlop={16}
+            style={{ padding: 4 }}
+          >
+            <Ionicons 
+              name={isFavorite ? "star" : "star-outline"} 
+              size={24} 
+              color={isFavorite ? "#FFFFFF" : "rgba(255, 255, 255, 0.6)"} 
+            />
           </Pressable>
         </Animated.View>
 
@@ -880,7 +893,9 @@ const styles = StyleSheet.create({
   trackInfo: {
     width: '100%',
     paddingHorizontal: 30,
-    alignItems: 'flex-start',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginTop: 6,
     marginBottom: 2,
   },
