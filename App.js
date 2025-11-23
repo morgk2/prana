@@ -3,7 +3,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, TextInput, Button, ActivityIndicator, Image, FlatList, ScrollView, Pressable, useColorScheme, Animated, Modal, Alert, useWindowDimensions } from 'react-native';
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, StackActions } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -1993,15 +1993,12 @@ function AppContent() {
 
   const handleTabPress = (tab) => {
     setCurrentTab(tab);
-    // If we are deep in the stack (index > 0), reset to root to close all stacked pages.
-    // This ensures we are at the "bottom" layer of the tab and it's not backable.
+    // If we are deep in the stack (index > 0), pop to top to close all stacked pages with animation.
+    // This ensures we are at the "bottom" layer of the tab and it matches the swipe-back behavior.
     if (navigationRef) {
       const state = navigationRef.getRootState();
       if (state && state.index > 0) {
-        navigationRef.reset({
-          index: 0,
-          routes: [{ name: 'MainTabs' }],
-        });
+        navigationRef.dispatch(StackActions.popToTop());
       }
     }
   };
