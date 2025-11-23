@@ -1588,8 +1588,11 @@ function AppContent() {
         params: {
           theme,
           libraryAlbums,
+          playlists,
+          libraryArtists,
           navigation: navigationRef,
           onTrackPress: openTrackPlayer,
+          openArtistPage,
           pickLocalAudio,
         },
       }}

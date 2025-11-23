@@ -10,6 +10,7 @@ import {
   Animated,
   PanResponder,
   TouchableOpacity,
+  FlatList,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,13 +19,24 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const COVER_SIZE = 180;
 const SPACING = 140; // Distance between covers
 
+function pickImageUrl(images, preferredSize = 'large') {
+  if (!Array.isArray(images)) return null;
+  const preferred = images.find((img) => img.size === preferredSize && img['#text']);
+  if (preferred) return preferred['#text'];
+  const any = images.find((img) => img['#text']);
+  return any ? any['#text'] : null;
+}
+
 export default function HomeScreen({ route }) {
   const {
     theme,
     libraryAlbums,
+    playlists = [],
+    libraryArtists = [],
     navigation,
     onTrackPress,
     pickLocalAudio,
+    openArtistPage,
   } = route.params;
 
   const [currentIndex, setCurrentIndex] = useState(libraryAlbums.length > 0 ? Math.floor(libraryAlbums.length / 2) : 0);
@@ -106,6 +118,60 @@ export default function HomeScreen({ route }) {
   };
 
   const recentAlbums = libraryAlbums.slice(0, 6);
+  const favoriteAlbums = [...libraryAlbums].sort(() => 0.5 - Math.random()).slice(0, 10);
+
+  const renderAlbumCarouselItem = ({ item }) => (
+    <Pressable style={styles.carouselItem} onPress={() => {
+      if (navigation) {
+        navigation.navigate('LibraryAlbum', {
+          album: item,
+          theme,
+          onTrackPress,
+          libraryAlbums,
+        });
+      }
+    }}>
+      {item.artwork ? (
+        <Image source={{ uri: item.artwork }} style={styles.carouselImage} />
+      ) : (
+        <View style={[styles.carouselImage, { backgroundColor: theme.inputBackground, justifyContent: 'center', alignItems: 'center' }]}>
+          <Ionicons name="disc-outline" size={40} color={theme.secondaryText} />
+        </View>
+      )}
+      <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.title}</Text>
+    </Pressable>
+  );
+
+  const renderPlaylistItem = ({ item }) => (
+    <Pressable style={styles.carouselItem} onPress={() => navigation.navigate('PlaylistPage', { playlist: item, theme, ...route.params })}>
+        {item.image ? (
+            <Image source={{ uri: item.image }} style={styles.carouselImage} />
+        ) : (
+            <View style={[styles.carouselImage, { backgroundColor: theme.card, justifyContent: 'center', alignItems: 'center' }]}>
+                <Ionicons name="musical-notes" size={40} color={theme.secondaryText} />
+            </View>
+        )}
+        <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.name}</Text>
+    </Pressable>
+  );
+
+  const renderArtistItem = ({ item }) => {
+    const imageUrl = pickImageUrl(item.image, 'large');
+    return (
+        <Pressable style={styles.artistItem} onPress={() => openArtistPage(item)}>
+            {imageUrl ? (
+                <Image source={{ uri: imageUrl }} style={styles.artistImage} />
+            ) : (
+                <View style={[styles.artistImage, { backgroundColor: theme.card, justifyContent: 'center', alignItems: 'center' }]}>
+                    <Ionicons name="person" size={60} color={theme.secondaryText} />
+                </View>
+            )}
+            <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>
+                {item.name}
+            </Text>
+        </Pressable>
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -116,10 +182,10 @@ export default function HomeScreen({ route }) {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={[styles.title, { color: theme.primaryText }]}>Prana</Text>
-          <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
-            Your Music Collection
-          </Text>
+          <Image
+            source={require('../../assets/expandedLogo.png')}
+            style={{ width: 300, height: 75, resizeMode: 'contain', marginLeft: -90 }}
+          />
         </View>
 
         {libraryAlbums.length > 0 ? (
@@ -128,75 +194,25 @@ export default function HomeScreen({ route }) {
             <View style={styles.scene} {...panResponder.panHandlers}>
               {libraryAlbums.map((album, index) => {
                 const isActive = index === currentIndex;
-
-                // We look at 2 items to the left and 2 items to the right
-                // to create a proper "stack" effect
                 const inputRange = [index - 2, index - 1, index, index + 1, index + 2];
-
-                // 1. SCALE: Active is 1, neighbors are smaller (0.8)
-                const scale = scrollX.interpolate({
-                  inputRange,
-                  outputRange: [0.8, 0.8, 1, 0.8, 0.8],
-                  extrapolate: 'clamp',
-                });
-
-                // 2. ROTATION: Reversed angles to curve inwards
-                // Left items face left (negative), Right items face right (positive)
-                const rotateY = scrollX.interpolate({
-                  inputRange,
-                  outputRange: ['-75deg', '-75deg', '0deg', '75deg', '75deg'],
-                  extrapolate: 'clamp',
-                });
-
-                // 3. TRANSLATION (The Stacking Magic)
-                // We use non-linear values to pull the "wings" tight together.
-                // Center: 0
-                // +/- 1: Shifted by 100 (Move out to clear the center image)
-                // +/- 2: Shifted by 130 (Only 30px more than neighbor -> Creates the stack/overlap)
-                const translateX = scrollX.interpolate({
-                  inputRange,
-                  outputRange: [130, 100, 0, -100, -130], 
-                  extrapolate: 'clamp',
-                });
-
-                // 4. OPACITY: Fade out items deeper in the stack
-                const opacity = scrollX.interpolate({
-                  inputRange,
-                  outputRange: [0.3, 0.6, 1, 0.6, 0.3],
-                  extrapolate: 'clamp',
-                });
-
-                // Z-Index matches your original logic (Center is on top)
+                const scale = scrollX.interpolate({ inputRange, outputRange: [0.8, 0.8, 1, 0.8, 0.8], extrapolate: 'clamp' });
+                const rotateY = scrollX.interpolate({ inputRange, outputRange: ['-75deg', '-75deg', '0deg', '75deg', '75deg'], extrapolate: 'clamp' });
+                const translateX = scrollX.interpolate({ inputRange, outputRange: [130, 100, 0, -100, -130], extrapolate: 'clamp' });
+                const opacity = scrollX.interpolate({ inputRange, outputRange: [1, 1, 1, 1, 1], extrapolate: 'clamp' });
                 const zIndex = 100 - Math.abs(currentIndex - index);
+                const reflectionOpacity = scrollX.interpolate({ inputRange, outputRange: [0.1, 0.3, 0.5, 0.3, 0.1], extrapolate: 'clamp' });
 
                 return (
                   <Animated.View
                     key={album.key || index}
-                    style={[
-                      styles.coverContainer,
-                      {
-                        zIndex,
-                        opacity,
-                        transform: [
-                          { perspective: 800 }, // Lower perspective = more dramatic 3D effect
-                          { translateX },
-                          { rotateY },
-                          { scale },
-                        ],
-                      }
-                    ]}
+                    style={[ styles.coverContainer, { zIndex, opacity, transform: [{ perspective: 800 }, { translateX }, { rotateY }, { scale }] } ]}
                   >
                     <TouchableOpacity 
                       activeOpacity={0.9} 
                       onPress={() => {
                         if (isActive) {
                           if (navigation) {
-                            navigation.navigate('LibraryAlbum', {
-                              album,
-                              theme,
-                              onTrackPress,
-                              libraryAlbums,
-                            });
+                            navigation.navigate('LibraryAlbum', { album, theme, onTrackPress, libraryAlbums });
                           }
                         } else {
                           jumpTo(index);
@@ -204,7 +220,6 @@ export default function HomeScreen({ route }) {
                       }}
                       style={styles.touchableCover}
                     >
-                      {/* Main Album Art */}
                       {album.artwork ? (
                         <Image source={{ uri: album.artwork }} style={styles.coverImage} />
                       ) : (
@@ -213,24 +228,16 @@ export default function HomeScreen({ route }) {
                         </View>
                       )}
                       
-                      {/* Reflection Effect */}
-                      <View style={styles.reflectionContainer}>
+                      <Animated.View style={[styles.reflectionContainer, { opacity: reflectionOpacity }]}>
                         {album.artwork ? (
-                          <Image 
-                            source={{ uri: album.artwork }} 
-                            style={[styles.coverImage, styles.reflectionImage]} 
-                          />
+                          <Image source={{ uri: album.artwork }} style={[styles.coverImage, styles.reflectionImage]} />
                         ) : (
                           <View style={[styles.coverImage, styles.reflectionImage, styles.placeholderAlbum, { backgroundColor: theme.card }]}>
                             <Ionicons name="disc-outline" size={60} color={theme.secondaryText} />
                           </View>
                         )}
-                        <LinearGradient
-                          colors={['rgba(0,0,0,0)', theme.background]}
-                          locations={[0, 0.8]}
-                          style={StyleSheet.absoluteFill}
-                        />
-                      </View>
+                        <LinearGradient colors={['rgba(0,0,0,0)', theme.background]} locations={[0, 0.8]} style={StyleSheet.absoluteFill} />
+                      </Animated.View>
                     </TouchableOpacity>
                   </Animated.View>
                 );
@@ -254,17 +261,64 @@ export default function HomeScreen({ route }) {
               </Text>
               <View style={styles.recentGrid}>
                 <View style={styles.recentColumn}>
-                  {recentAlbums.filter((_, i) => i % 2 === 0).map((album, i) => 
-                    renderRecentAlbumCard(album, i * 2)
-                  )}
+                  {recentAlbums.filter((_, i) => i % 2 === 0).map((album, i) => renderRecentAlbumCard(album, i * 2))}
                 </View>
                 <View style={styles.recentColumn}>
-                  {recentAlbums.filter((_, i) => i % 2 === 1).map((album, i) => 
-                    renderRecentAlbumCard(album, i * 2 + 1)
-                  )}
+                  {recentAlbums.filter((_, i) => i % 2 === 1).map((album, i) => renderRecentAlbumCard(album, i * 2 + 1))}
                 </View>
               </View>
             </View>
+
+            {/* Your Playlists */}
+            {playlists && playlists.length > 0 && (
+                <View style={styles.carouselSection}>
+                <Text style={[styles.sectionTitle, { color: theme.primaryText, paddingHorizontal: 20 }]}>
+                    Your Playlists
+                </Text>
+                <FlatList
+                    horizontal
+                    data={playlists}
+                    renderItem={renderPlaylistItem}
+                    keyExtractor={item => item.id}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingLeft: 20, paddingRight: 5 }}
+                />
+                </View>
+            )}
+
+            {/* Your Favorite Albums */}
+            {favoriteAlbums && favoriteAlbums.length > 0 && (
+                <View style={styles.carouselSection}>
+                <Text style={[styles.sectionTitle, { color: theme.primaryText, paddingHorizontal: 20 }]}>
+                    Your Favorite Albums
+                </Text>
+                <FlatList
+                    horizontal
+                    data={favoriteAlbums}
+                    renderItem={renderAlbumCarouselItem}
+                    keyExtractor={item => item.key}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingLeft: 20, paddingRight: 5 }}
+                />
+                </View>
+            )}
+
+            {/* Your Favorite Artists */}
+            {libraryArtists && libraryArtists.length > 0 && (
+                <View style={styles.carouselSection}>
+                <Text style={[styles.sectionTitle, { color: theme.primaryText, paddingHorizontal: 20 }]}>
+                    Your Favorite Artists
+                </Text>
+                <FlatList
+                    horizontal
+                    data={libraryArtists}
+                    renderItem={renderArtistItem}
+                    keyExtractor={item => item.name}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingLeft: 20, paddingRight: 5 }}
+                />
+                </View>
+            )}
           </>
         ) : (
           <View style={styles.emptyState}>
@@ -362,7 +416,6 @@ const styles = StyleSheet.create({
     width: COVER_SIZE,
     height: 100,
     marginTop: 2,
-    opacity: 0.3,
     overflow: 'hidden',
   },
   reflectionImage: {
@@ -389,6 +442,7 @@ const styles = StyleSheet.create({
   },
   recentSection: {
     paddingHorizontal: 20,
+    marginTop: 20,
   },
   sectionTitle: {
     fontSize: 20,
@@ -459,5 +513,34 @@ const styles = StyleSheet.create({
   importButtonText: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  carouselSection: {
+    marginTop: 30,
+  },
+  carouselItem: {
+    marginRight: 15,
+    width: 150,
+  },
+  carouselImage: {
+    width: 150,
+    height: 150,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  carouselItemText: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  artistItem: {
+    marginRight: 15,
+    width: 150,
+    alignItems: 'center',
+  },
+  artistImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 60, // for circle shape
+    marginBottom: 10,
   },
 });
