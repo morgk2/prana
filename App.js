@@ -22,7 +22,7 @@ import HomeScreen from './src/components/HomeScreen';
 import ModulesPage from './src/components/ModulesPage';
 import { colors } from './src/theme/colors';
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
+import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 
 // ... existing imports ...
@@ -1944,10 +1944,14 @@ function AppContent() {
 
 
       {/* Mini player when a track is active but full player is minimized */}
-      {currentTrack && !isPlayerExpanded && (() => {
+      {currentTrack && (() => {
+        const isSettingsPage = ['Settings', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules'].includes(currentRoute);
+        const isVisible = !isPlayerExpanded && !isSettingsPage;
         const miniImageUrl = pickImageUrl(currentTrack.image, 'large');
+        
         return (
           <Animated.View
+            pointerEvents={isVisible ? 'auto' : 'none'}
             style={[
               styles.miniPlayer,
               {

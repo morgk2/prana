@@ -380,17 +380,3 @@ jobs:
           name: iOS-Build-IPA
           path: build/${{ env.ipa_name }}
           retention-days: 30
-
-
-      - name: Publish GitHub Release (attach IPA)
-        if: github.event_name != 'pull_request'
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ios-ipa-${{ github.run_number }}
-          name: iOS IPA Build ${{ github.run_number }}
-          body: |
-            Automated unsigned iOS IPA build from workflow run ${{ github.run_id }}.
-            Commit: ${{ github.sha }}
-          draft: false
-          prerelease: false
-          files: build/${{ env.ipa_name }}

@@ -12,8 +12,16 @@ import {
   Animated,
   Easing,
   ScrollView,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+
+if (Platform.OS === 'android') {
+  if (UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+  }
+}
 import { Audio } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -172,6 +180,7 @@ export default function SongPlayer({ isVisible = true, track, onClose, theme, se
   const [repeatMode, setRepeatMode] = useState(0); // 0: Off, 1: Queue, 2: Song
   const [localArtwork, setLocalArtwork] = useState(null);
   const [isResolvingTidal, setIsResolvingTidal] = useState(false);
+  const [modalAnimationType, setModalAnimationType] = useState('slide');
 
   // Fetch artwork if missing
   useEffect(() => {
@@ -214,8 +223,107 @@ export default function SongPlayer({ isVisible = true, track, onClose, theme, se
   const controlsOpacity = useRef(new Animated.Value(1)).current;
   const controlsTranslateY = useRef(new Animated.Value(0)).current;
   const headerTranslateY = useRef(new Animated.Value(0)).current;
+  const lyricsHeaderTranslateY = useRef(new Animated.Value(0)).current;
+  const lyricsHeaderOpacity = useRef(new Animated.Value(1)).current;
+  const lyricsTranslateY = useRef(new Animated.Value(0)).current;
   const lyricsOpacity = useRef(new Animated.Value(0)).current;
+  const artworkOpacityAnim = useRef(new Animated.Value(1)).current;
   const immersiveTimeout = useRef(null);
+  const isDismissingRef = useRef(false);
+  
+  const panY = useRef(new Animated.Value(0)).current;
+  const showLyricsRef = useRef(showLyrics);
+  
+  useEffect(() => {
+    showLyricsRef.current = showLyrics;
+  }, [showLyrics]);
+  
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // Don't interfere with scrubbing
+        if (isScrubbingRef.current) return false;
+        
+        const isDownwardSwipe = gestureState.dy > 10;
+        const isVerticalDominant = Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
+        
+        // If lyrics are open, only allow swipe from top header area
+        if (showLyricsRef.current) {
+          const touchY = evt.nativeEvent.pageY;
+          return isDownwardSwipe && touchY < 200;
+        }
+        
+        // When lyrics are closed, allow any downward vertical swipe
+        return isDownwardSwipe && isVerticalDominant;
+      },
+      onMoveShouldSetPanResponderCapture: () => false,
+      onPanResponderGrant: () => {
+        panY.setOffset(0);
+        panY.setValue(0);
+        isDismissingRef.current = false;
+        if (showLyricsRef.current) {
+          resetImmersiveTimer();
+        }
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        // Only track downward movement
+        if (gestureState.dy > 0) {
+          panY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        panY.flattenOffset();
+        
+        // Dismiss if swiped down far enough or with enough velocity
+        if (gestureState.dy > 150 || gestureState.vy > 0.5) {
+          isDismissingRef.current = true;
+          // Disable modal animation since we're animating manually
+          setModalAnimationType('none');
+          Animated.timing(panY, {
+            toValue: 1000,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(({ finished }) => {
+            if (finished) {
+              onClose();
+            }
+          });
+        } else {
+          // Spring back to original position
+          Animated.spring(panY, {
+            toValue: 0,
+            friction: 7,
+            tension: 40,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        // Only reset if we're not already dismissing
+        if (!isDismissingRef.current) {
+          Animated.spring(panY, {
+            toValue: 0,
+            friction: 7,
+            tension: 40,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  useEffect(() => {
+    if (isVisible) {
+      panY.setValue(0);
+    } else {
+      // Reset to slide when hidden, ready for next open
+      // Use a small timeout to ensure the 'none' exit animation (instant hide) has triggered first
+      const timer = setTimeout(() => setModalAnimationType('slide'), 200);
+      return () => clearTimeout(timer);
+    }
+  }, [isVisible]);
 
   const setScrubbing = (value) => {
     isScrubbingRef.current = value;
@@ -230,33 +338,50 @@ export default function SongPlayer({ isVisible = true, track, onClose, theme, se
       Animated.timing(controlsOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
       Animated.timing(controlsTranslateY, { toValue: 0, duration: 300, useNativeDriver: true }),
       Animated.timing(headerTranslateY, { toValue: 0, duration: 300, useNativeDriver: true }),
+      Animated.timing(lyricsHeaderTranslateY, { toValue: 0, duration: 300, useNativeDriver: true }),
+      Animated.timing(lyricsHeaderOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+      Animated.timing(lyricsTranslateY, { toValue: 0, duration: 300, useNativeDriver: true }),
     ]).start();
 
     if (immersiveTimeout.current) clearTimeout(immersiveTimeout.current);
-    immersiveTimeout.current = setTimeout(() => {
-      setIsImmersive(true);
-      Animated.parallel([
-        Animated.timing(controlsOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
-        Animated.timing(controlsTranslateY, { toValue: 50, duration: 500, useNativeDriver: true }),
-        Animated.timing(headerTranslateY, { toValue: -50, duration: 500, useNativeDriver: true }),
-      ]).start();
-    }, 6000);
-  }, [showLyrics]);
+    
+    if (isPlaying) {
+      immersiveTimeout.current = setTimeout(() => {
+        setIsImmersive(true);
+        Animated.parallel([
+          Animated.timing(controlsOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
+          Animated.timing(controlsTranslateY, { toValue: 50, duration: 500, useNativeDriver: true }),
+          Animated.timing(headerTranslateY, { toValue: -100, duration: 500, useNativeDriver: true }),
+          Animated.timing(lyricsHeaderTranslateY, { toValue: -80, duration: 500, useNativeDriver: true }),
+          Animated.timing(lyricsHeaderOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
+          Animated.timing(lyricsTranslateY, { toValue: 50, duration: 500, useNativeDriver: true }),
+        ]).start();
+      }, 10000);
+    }
+  }, [showLyrics, isPlaying]);
 
   useEffect(() => {
     if (showLyrics) {
       Animated.parallel([
         Animated.timing(lyricsOpacity, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(artworkOpacityAnim, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
         Animated.timing(controlsOpacity, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
         Animated.timing(controlsTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
         Animated.timing(headerTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(lyricsHeaderTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(lyricsHeaderOpacity, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(lyricsTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       ]).start(() => resetImmersiveTimer());
     } else {
       Animated.parallel([
         Animated.timing(lyricsOpacity, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(artworkOpacityAnim, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
         Animated.timing(controlsOpacity, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
         Animated.timing(controlsTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
         Animated.timing(headerTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(lyricsHeaderTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(lyricsHeaderOpacity, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(lyricsTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       ]).start();
       if (immersiveTimeout.current) clearTimeout(immersiveTimeout.current);
       setIsImmersive(false);
@@ -264,7 +389,17 @@ export default function SongPlayer({ isVisible = true, track, onClose, theme, se
     return () => {
       if (immersiveTimeout.current) clearTimeout(immersiveTimeout.current);
     };
-  }, [showLyrics, resetImmersiveTimer]);
+  }, [showLyrics, resetImmersiveTimer, isPlaying]);
+
+  const toggleLyrics = () => {
+    LayoutAnimation.configureNext({
+      duration: 300,
+      update: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+      },
+    });
+    setShowLyrics(!showLyrics);
+  };
 
   const toggleShuffle = () => {
     resetImmersiveTimer();
@@ -522,38 +657,63 @@ export default function SongPlayer({ isVisible = true, track, onClose, theme, se
   const isLoading = (track?.isFetching || isResolvingTidal) && !activeUri;
 
   return (
-    <Modal visible={isVisible} animationType="slide" transparent>
-      <LinearGradient
-        colors={[colors.primary, colors.secondary]}
-        style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
-        onTouchStart={resetImmersiveTimer}
+    <Modal visible={isVisible} animationType={modalAnimationType} transparent>
+      <Animated.View
+        style={{ flex: 1, transform: [{ translateY: panY }] }}
+        {...panResponder.panHandlers}
       >
-        <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }], opacity: controlsOpacity }]}>
+        <LinearGradient
+          colors={[colors.primary, colors.secondary]}
+          style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
+        >
+          <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }], opacity: controlsOpacity }]}>
           <Pressable onPress={onClose} style={styles.iconButton} hitSlop={16}>
             <Ionicons name="chevron-down" size={28} color="#fff" />
           </Pressable>
           <Text style={styles.headerTitle}>NOW PLAYING</Text>
-          <View style={{ flexDirection: 'row', gap: 16 }}>
-            <Pressable hitSlop={16} onPress={() => setShowLyrics(!showLyrics)}>
-              <Ionicons name="chatbox-ellipses" size={24} color={showLyrics ? "#fff" : "rgba(255,255,255,0.7)"} />
-            </Pressable>
-            <Pressable onPress={() => setQueueVisible(true)}>
-              <Ionicons name="list" size={24} color="#fff" />
-            </Pressable>
+          <View style={{ width: 28 }} />
+        </Animated.View>
+
+        {/* Lyrics Header (Mini Player Info) */}
+        <Animated.View style={[
+          styles.lyricsHeader,
+          { transform: [{ translateY: lyricsHeaderTranslateY }], opacity: lyricsHeaderOpacity },
+          !showLyrics && { height: 0, opacity: 0, overflow: 'hidden', marginBottom: 0 }
+        ]}>
+          {imageUrl ? (
+            <Image source={{ uri: imageUrl }} style={styles.lyricsHeaderArtwork} />
+          ) : (
+            <View style={[styles.lyricsHeaderArtwork, { backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' }]}>
+              <Ionicons name="musical-note" size={24} color="rgba(255,255,255,0.3)" />
+            </View>
+          )}
+          <View style={styles.lyricsHeaderInfo}>
+            <Text style={styles.lyricsHeaderTitle} numberOfLines={1}>{track.name}</Text>
+            <Text style={styles.lyricsHeaderArtist} numberOfLines={1}>{track.artist?.name ?? track.artist}</Text>
           </View>
         </Animated.View>
 
-        {showLyrics ? (
-          <Animated.View style={[styles.lyricsContainer, isImmersive && styles.lyricsContainerImmersive, { opacity: lyricsOpacity }]}>
-            <LyricsView
-              track={track}
-              currentTime={positionSec}
-              duration={durationSec}
-              onSeek={onSeekComplete}
-              onInteraction={resetImmersiveTimer}
-            />
-          </Animated.View>
-        ) : (
+        <Animated.View style={[
+          styles.lyricsContainer,
+          isImmersive && styles.lyricsContainerImmersive,
+          { opacity: lyricsOpacity, transform: [{ translateY: lyricsTranslateY }] },
+          !showLyrics && { height: 0, flex: 0, overflow: 'hidden', opacity: 0 }
+        ]}>
+          <LyricsView
+            track={track}
+            currentTime={positionSec}
+            duration={durationSec}
+            onSeek={onSeekComplete}
+            onInteraction={resetImmersiveTimer}
+          />
+        </Animated.View>
+
+        <Animated.View 
+          style={[
+          styles.artworkContainerOuter,
+          showLyrics && { height: 0, overflow: 'hidden' }
+        ]}
+        >
           <Animated.View style={[
             styles.artworkContainer,
             {
@@ -565,7 +725,7 @@ export default function SongPlayer({ isVisible = true, track, onClose, theme, se
               ],
               opacity: Animated.multiply(
                 slideAnim.interpolate({ inputRange: [-1, -0.4, 0, 0.4, 1], outputRange: [0, 0.6, 1, 0.6, 0] }),
-                lyricsOpacity.interpolate({ inputRange: [0, 1], outputRange: [1, 0] })
+                artworkOpacityAnim
               ),
             },
           ]}>
@@ -577,18 +737,21 @@ export default function SongPlayer({ isVisible = true, track, onClose, theme, se
               </View>
             )}
           </Animated.View>
-        )}
+        </Animated.View>
 
-        <Animated.View style={[
-          styles.trackInfo,
-          {
-            transform: [{ translateX: slideAnim.interpolate({ inputRange: [-1, 0, 1], outputRange: [-100, 0, 100] }) }, { translateY: controlsTranslateY }],
-            opacity: Animated.multiply(
-              slideAnim.interpolate({ inputRange: [-1, -0.3, 0, 0.3, 1], outputRange: [0, 0.4, 1, 0.4, 0] }),
-              controlsOpacity
-            ),
-          },
-        ]}>
+        <Animated.View 
+          style={[
+            styles.trackInfo,
+            {
+              transform: [{ translateX: slideAnim.interpolate({ inputRange: [-1, 0, 1], outputRange: [-100, 0, 100] }) }, { translateY: controlsTranslateY }],
+              opacity: Animated.multiply(
+                slideAnim.interpolate({ inputRange: [-1, -0.3, 0, 0.3, 1], outputRange: [0, 0.4, 1, 0.4, 0] }),
+                controlsOpacity
+              ),
+            },
+            showLyrics && { height: 0, opacity: 0, overflow: 'hidden', marginTop: 0, marginBottom: 0 }
+          ]}
+        >
           <Text style={styles.title} numberOfLines={1}>{track.name}</Text>
           <Pressable onPress={() => onArtistPress && onArtistPress(track.artist?.name ?? track.artist)}>
             <Text style={styles.artist} numberOfLines={1}>{track.artist?.name ?? track.artist}</Text>
@@ -637,6 +800,15 @@ export default function SongPlayer({ isVisible = true, track, onClose, theme, se
             </View>
           </Pressable>
         </Animated.View>
+
+        <Animated.View style={[styles.bottomControls, { opacity: controlsOpacity, transform: [{ translateY: controlsTranslateY }] }]}>
+          <Pressable hitSlop={16} onPress={toggleLyrics} style={styles.bottomControlButton}>
+            <Ionicons name="chatbox-ellipses" size={24} color={showLyrics ? "#fff" : "rgba(255,255,255,0.7)"} />
+          </Pressable>
+          <Pressable onPress={() => setQueueVisible(true)} style={styles.bottomControlButton}>
+            <Ionicons name="list" size={24} color="#fff" />
+          </Pressable>
+        </Animated.View>
         
         <QueueSheet
           visible={queueVisible}
@@ -646,7 +818,8 @@ export default function SongPlayer({ isVisible = true, track, onClose, theme, se
           onTrackSelect={onTrackChange}
           onReorder={onQueueReorder}
         />
-      </LinearGradient>
+        </LinearGradient>
+      </Animated.View>
     </Modal>
   );
 }
@@ -682,6 +855,11 @@ const styles = StyleSheet.create({
     padding: 8,
     margin: -8,
   },
+  artworkContainerOuter: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
   artworkContainer: {
     width: 350,
     height: 350,
@@ -703,8 +881,8 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingHorizontal: 30,
     alignItems: 'flex-start',
-    marginTop: 24,
-    marginBottom: 4,
+    marginTop: 6,
+    marginBottom: 2,
   },
   title: {
     color: '#fff',
@@ -722,7 +900,7 @@ const styles = StyleSheet.create({
   progressContainer: {
     width: '100%',
     paddingHorizontal: 30,
-    marginTop: 8,
+    marginTop: 4,
   },
   timeRow: {
     flexDirection: 'row',
@@ -741,8 +919,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     width: '100%',
     paddingHorizontal: 30,
+    marginBottom: 10,
+    marginTop: 8,
+  },
+  bottomControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingHorizontal: 40,
     marginBottom: 40,
-    marginTop: 0,
+  },
+  bottomControlButton: {
+    padding: 10,
   },
   controlButton: {
     padding: 12,
@@ -779,5 +967,33 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 20,
     backgroundColor: 'transparent',
+  },
+  lyricsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 0,
+    width: '100%',
+    height: 60, // Fixed height for animation
+  },
+  lyricsHeaderArtwork: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  lyricsHeaderInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  lyricsHeaderTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  lyricsHeaderArtist: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 14,
   },
 });

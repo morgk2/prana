@@ -8,12 +8,61 @@ import {
     FlatList,
     Pressable,
     Animated,
+    Easing,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { getLyrics } from '../api/lrclib';
 import { parseLrc } from '../utils/lrcParser';
 import { fetchAndCacheLyrics } from '../utils/lyricsCache';
+
+const LyricLine = ({ item, isActive, onPress }) => {
+    const animValue = useRef(new Animated.Value(isActive ? 1 : 0)).current;
+
+    useEffect(() => {
+        Animated.timing(animValue, {
+            toValue: isActive ? 1 : 0,
+            duration: 300,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+        }).start();
+    }, [isActive]);
+
+    return (
+        <Pressable onPress={onPress} style={styles.line}>
+            <Animated.Text
+                style={[
+                    styles.lineText,
+                    {
+                        opacity: animValue.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0.5, 1],
+                        }),
+                        transform: [
+                            {
+                                scale: animValue.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: [1, 1.05],
+                                }),
+                            },
+                            {
+                                translateX: animValue.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: [0, 10], // Slight shift right for active
+                                }),
+                            }
+                        ],
+                        textShadowColor: 'rgba(0,0,0,0.3)',
+                        textShadowOffset: { width: 0, height: 2 },
+                        textShadowRadius: 4,
+                    },
+                ]}
+            >
+                {item.text}
+            </Animated.Text>
+        </Pressable>
+    );
+};
 
 export default function LyricsView({ track, currentTime, duration, onSeek, onInteraction, style }) {
     const [loading, setLoading] = useState(false);
@@ -85,40 +134,83 @@ export default function LyricsView({ track, currentTime, duration, onSeek, onInt
         };
     }, [track?.id, track?.uri, track?.name, track?.artist]);
 
-// Parse lyrics when data is available
-useEffect(() => {
-    if (lyricsData?.syncedLyrics) {
-        const parsed = parseLrc(lyricsData.syncedLyrics);
-        setParsedLyrics(parsed);
-    } else {
-        setParsedLyrics([]);
-    }
-}, [lyricsData]);
+    // Parse lyrics when data is available
+    useEffect(() => {
+        if (lyricsData?.syncedLyrics) {
+            let parsed = parseLrc(lyricsData.syncedLyrics);
 
-// Update active index based on currentTime
-useEffect(() => {
-    if (!parsedLyrics.length) return;
+            // Process for instrumental breaks / gaps
+            if (parsed.length > 0) {
+                const withFillers = [];
+                const GAP_THRESHOLD = 10; // seconds
+                const START_THRESHOLD = 5; // seconds
 
-    // Find the line that corresponds to current time
-    // The active line is the last one where time <= currentTime
-    let index = parsedLyrics.findIndex(line => line.time > currentTime);
+                // Check for intro gap
+                if (parsed[0].time > START_THRESHOLD) {
+                    withFillers.push({ time: 0, text: '...' });
+                }
 
-    if (index === -1) {
-        // All lines are in the past
-        index = parsedLyrics.length - 1;
-    } else {
-        // The found index is the first future line, so the active one is index - 1
-        index = index - 1;
-    }
+                for (let i = 0; i < parsed.length; i++) {
+                    const currentLine = parsed[i];
+                    withFillers.push(currentLine);
 
-    // Clamp index
-    index = Math.max(0, index);
+                    // Check gap to next line
+                    if (i < parsed.length - 1) {
+                        const nextLine = parsed[i + 1];
+                        const gap = nextLine.time - currentLine.time;
+                        
+                        if (gap > GAP_THRESHOLD) {
+                            // Insert filler line shortly after current line
+                            // But ensure it's before the next line
+                            // A simple heuristic: current line time + 5s (or less if gap is small but > 10)
+                            // Let's say we just put it at current + 5s?
+                            // Or better: if lyrics are sparse, we want the '...' to appear during the silence.
+                            // We'll insert it 3 seconds after the current line starts.
+                            // Wait, if the line is long, 3s might be too early.
+                            // Lrc lines don't have duration.
+                            // Let's assume a line takes ~3-4 seconds.
+                            // We'll insert '...' at currentLine.time + 5, ensuring it's < nextLine.time
+                            
 
-    if (index !== activeIndex) {
-        setActiveIndex(index);
-        scrollToIndex(index);
-    }
-}, [currentTime, parsedLyrics]);
+                            let fillerTime = currentLine.time + 5;
+                            if (fillerTime < nextLine.time) {
+                                withFillers.push({ time: fillerTime, text: '...' });
+                            }
+                        }
+                    }
+                }
+                parsed = withFillers;
+            }
+            
+            setParsedLyrics(parsed);
+        } else {
+            setParsedLyrics([]);
+        }
+    }, [lyricsData]);
+
+    // Update active index based on currentTime
+    useEffect(() => {
+        if (!parsedLyrics.length) return;
+
+        // Find the line that corresponds to current time
+        // The active line is the last one where time <= currentTime
+        let index = -1;
+        for (let i = 0; i < parsedLyrics.length; i++) {
+            if (parsedLyrics[i].time <= currentTime) {
+                index = i;
+            } else {
+                break;
+            }
+        }
+
+        // Clamp index
+        index = Math.max(0, index);
+
+        if (index !== activeIndex) {
+            setActiveIndex(index);
+            scrollToIndex(index);
+        }
+    }, [currentTime, parsedLyrics]);
 
 const scrollToIndex = (index) => {
     if (isUserScrolling.current || !flatListRef.current) return;
@@ -127,7 +219,7 @@ const scrollToIndex = (index) => {
         flatListRef.current.scrollToIndex({
             index,
             animated: true,
-            viewPosition: 0.5, // Position active item at center
+            viewPosition: 0, // Position active item at top
         });
     } catch (e) {
         // Ignore scroll errors (e.g. list not ready)
@@ -149,11 +241,13 @@ const handleScrollEnd = () => {
         if (activeIndex >= 0) {
             scrollToIndex(activeIndex);
         }
-    }, 3000);
+    }, 2000);
 };
 
-const handleLinePress = (line) => {
+const handleLinePress = (line, index) => {
     if (onInteraction) onInteraction();
+    // Optimistic update
+    setActiveIndex(index);
     if (onSeek) {
         Haptics.selectionAsync();
         onSeek(line.time);
@@ -161,22 +255,12 @@ const handleLinePress = (line) => {
 };
 
 const renderItem = ({ item, index }) => {
-    const isActive = index === activeIndex;
-
     return (
-        <Pressable
-            onPress={() => handleLinePress(item)}
-            style={[styles.line, isActive && styles.activeLine]}
-        >
-            <Text
-                style={[
-                    styles.lineText,
-                    isActive ? styles.activeLineText : styles.inactiveLineText,
-                ]}
-            >
-                {item.text}
-            </Text>
-        </Pressable>
+        <LyricLine
+            item={item}
+            isActive={index === activeIndex}
+            onPress={() => handleLinePress(item, index)}
+        />
     );
 };
 
@@ -261,7 +345,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     listContent: {
-        paddingVertical: '50%', // Large padding to allow scrolling top/bottom lines to center
+        paddingTop: 60,
+        paddingBottom: '80%',
         paddingHorizontal: 24,
     },
     line: {
@@ -269,25 +354,16 @@ const styles = StyleSheet.create({
         borderRadius: 12,
     },
     activeLine: {
-        // transform: [{ scale: 1.05 }], // Optional scale effect
     },
     lineText: {
         fontSize: 24,
         fontWeight: '700',
         textAlign: 'left',
+        color: '#ffffff',
     },
     activeLineText: {
-        color: '#ffffff',
-        opacity: 1,
-        textShadowColor: 'rgba(0,0,0,0.3)',
-        textShadowOffset: { width: 0, height: 2 },
-        textShadowRadius: 4,
     },
     inactiveLineText: {
-        color: '#ffffff',
-        opacity: 0.5,
-        fontSize: 22,
-        fontWeight: '600',
     },
     plainLineText: {
         color: '#ffffff',
