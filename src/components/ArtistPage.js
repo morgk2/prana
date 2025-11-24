@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
-import { getArtistTopTracks, getArtistTopAlbums, getAlbumInfo, getArtistInfo, getRelatedArtists } from '../api/lastfm';
+import { getArtistTopTracks, getArtistTopAlbums, getArtistSingles, getAlbumInfo, getArtistInfo, getRelatedArtists } from '../api/lastfm';
 import * as FileSystem from 'expo-file-system/legacy';
 
 function pickImageUrl(images, preferredSize = 'large') {
@@ -36,6 +36,7 @@ export default function ArtistPage({ route, navigation }) {
 
   const [topTracks, setTopTracks] = useState([]);
   const [topAlbums, setTopAlbums] = useState([]);
+  const [singles, setSingles] = useState([]);
   const [artistInfo, setArtistInfo] = useState(null);
   const [similarArtists, setSimilarArtists] = useState([]);
   const [loading, setLoading] = useState(initialLoading || false);
@@ -257,15 +258,17 @@ export default function ArtistPage({ route, navigation }) {
       setError(null);
 
       try {
-        const [tracks, albums, info, similar] = await Promise.all([
+        const [tracks, albums, artistSingles, info, similar] = await Promise.all([
           getArtistTopTracks(artist.name, { limit: 30 }),
           getArtistTopAlbums(artist.name, { limit: 10 }),
+          getArtistSingles(artist.name, { limit: 20 }),
           getArtistInfo(artist.name),
           getRelatedArtists(artist.name, { limit: 10 }),
         ]);
 
         setTopTracks(tracks ?? []);
         setTopAlbums(albums ?? []);
+        setSingles(artistSingles ?? []);
         setArtistInfo(info);
         setSimilarArtists(similar ?? []);
       } catch (e) {
@@ -404,15 +407,27 @@ export default function ArtistPage({ route, navigation }) {
         </View>
         <View style={styles.section}>
           <SkeletonBox width={120} height={26} style={{ marginBottom: 16 }} />
-          {[1, 2, 3, 4].map((i) => (
-            <View key={`skeleton-album-${i}`} style={[styles.row, { borderBottomWidth: 0, paddingVertical: 10 }]}>
-              <SkeletonBox width={56} height={56} style={{ marginRight: 12 }} />
-              <View style={styles.rowText}>
-                <SkeletonBox width={`${55 + (i * 6) % 30}%`} height={16} style={{ marginBottom: 8 }} />
-                <SkeletonBox width={`${35 + (i * 8) % 25}%`} height={14} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {[1, 2, 3].map((i) => (
+              <View key={`skeleton-album-${i}`} style={{ width: 150, marginRight: 16 }}>
+                <SkeletonBox width={150} height={150} style={{ marginBottom: 8, borderRadius: 12 }} />
+                <SkeletonBox width={120} height={14} style={{ marginBottom: 4 }} />
+                <SkeletonBox width={80} height={12} />
               </View>
-            </View>
-          ))}
+            ))}
+          </ScrollView>
+        </View>
+        <View style={styles.section}>
+          <SkeletonBox width={100} height={26} style={{ marginBottom: 16 }} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {[1, 2, 3].map((i) => (
+              <View key={`skeleton-single-${i}`} style={{ width: 150, marginRight: 16 }}>
+                <SkeletonBox width={150} height={150} style={{ marginBottom: 8, borderRadius: 12 }} />
+                <SkeletonBox width={110} height={14} style={{ marginBottom: 4 }} />
+                <SkeletonBox width={70} height={12} />
+              </View>
+            ))}
+          </ScrollView>
         </View>
       </>
     );
@@ -445,9 +460,10 @@ export default function ArtistPage({ route, navigation }) {
       return <Text style={[styles.error, { color: theme.error }]}>{error}</Text>;
     }
 
-    // Filter tracks and albums if showOwnedOnly is enabled
+    // Filter tracks, albums, and singles if showOwnedOnly is enabled
     const displayTracks = showOwnedOnly ? topTracks.filter(isTrackImported) : topTracks;
     const displayAlbums = showOwnedOnly ? topAlbums.filter(isAlbumImported) : topAlbums;
+    const displaySingles = showOwnedOnly ? singles.filter(isAlbumImported) : singles;
 
     return (
       <>
@@ -541,6 +557,62 @@ export default function ArtistPage({ route, navigation }) {
                     </Text>
                     <Text style={[styles.albumSubtitle, { color: theme.secondaryText }]} numberOfLines={1}>
                       {a.artist?.name ?? a.artist}
+                    </Text>
+
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                      {imported && (
+                          <Ionicons
+                          name="checkmark-circle"
+                          size={16}
+                          color={theme.primaryText}
+                          style={{ marginRight: 8 }}
+                          />
+                      )}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* Singles Section */}
+        {displaySingles.length > 0 && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Singles</Text>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingRight: 16 }}
+            >
+              {displaySingles.map((single, index) => {
+                const imageUrl = pickImageUrl(single.image, 'extralarge') || pickImageUrl(single.image, 'large');
+                const imported = isAlbumImported(single);
+                return (
+                  <Pressable 
+                      key={`artist-single-${single.mbid || single.name}-${index}`}
+                      onPress={() => openAlbumPage && openAlbumPage(single)}
+                      onLongPress={() => {
+                          if (!imported) {
+                              openContextMenu('album', single);
+                          }
+                      }}
+                      delayLongPress={200}
+                      style={styles.albumCard}
+                  >
+                    {imageUrl ? (
+                      <Image source={{ uri: imageUrl }} style={styles.albumImage} />
+                    ) : (
+                      <View style={[styles.albumImage, { backgroundColor: theme.card, justifyContent: 'center', alignItems: 'center' }]}>
+                        <Ionicons name="musical-note" size={40} color={theme.secondaryText} />
+                      </View>
+                    )}
+                    
+                    <Text style={[styles.albumTitle, { color: theme.primaryText }]} numberOfLines={1}>
+                      {single.name}
+                    </Text>
+                    <Text style={[styles.albumSubtitle, { color: theme.secondaryText }]} numberOfLines={1}>
+                      {single.artist?.name ?? single.artist}
                     </Text>
 
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>

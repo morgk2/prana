@@ -27,6 +27,15 @@ import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import { ModuleManager } from './src/services/ModuleManager';
 import { YTDL_MODULE_CODE } from './src/services/ytdlModule';
+import * as Notifications from 'expo-notifications';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+  }),
+});
 
 // ... existing imports ...
 
@@ -357,6 +366,7 @@ function LibraryHomeScreen({ route, navigation }) {
               onTrackPress: openTrackPlayer,
               currentTrack,
               addToQueue,
+              addAlbumToQueue,
               useTidalForUnowned,
               onPlaylistPress: (playlist) => console.log('Open playlist', playlist)
             })}
@@ -1178,6 +1188,8 @@ function AppContent() {
     tidal: { enabled: true, name: 'Tidal Music' }
   });
   const [shouldAutoPlay, setShouldAutoPlay] = useState(true);
+  const [importProgress, setImportProgress] = useState(0);
+  const [isImporting, setIsImporting] = useState(false);
   const queueNotificationTimer = useRef(null);
   const queueNotificationAnim = useRef(new Animated.Value(0)).current;
 
@@ -1458,27 +1470,70 @@ function AppContent() {
         await FileSystem.copyAsync({ from: sourceUri, to: destUri });
       }
 
-      const entry = {
+      // Prepare the new entry data
+      const baseEntry = {
         ...track,
-        uri: destUri || track.uri, // Keep existing URI if no new source, or use new dest
-        dateAdded: Date.now(),
+        uri: destUri || track.uri, // Use new local URI if available, otherwise keep existing
       };
 
       setLibrary((prev) => {
-        // avoid duplicates by uri if uri exists, or by id/name if remote
-        let filtered;
-        if (entry.uri) {
-          filtered = prev.filter((t) => t.uri !== entry.uri);
+        // Helper to safely get artist name for comparison
+        const getArtistName = (t) => {
+          if (!t) return '';
+          return (t.artist && t.artist.name) || t.artist || '';
+        };
+
+        // Find existing track by URI or Metadata (Name + Artist + Album)
+        const existingIndex = prev.findIndex(t => {
+          // 1. Check URI match
+          const uriMatch = (baseEntry.uri && t.uri === baseEntry.uri);
+          if (uriMatch) return true;
+
+          // 2. Check Metadata match (Name + Artist + Album)
+          const nameMatch = t.name === baseEntry.name;
+          const artistMatch = getArtistName(t) === getArtistName(baseEntry);
+          
+          // Helper for loose album matching (handling "Single" suffix)
+          const isSameAlbum = (a, b) => {
+             if (a === b) return true;
+             if (!a || !b) return false;
+             const normalize = (s) => s.toLowerCase().replace(/ - single$/i, '').replace(/ \(single\)$/i, '').trim();
+             return normalize(a) === normalize(b);
+          };
+          
+          const albumMatch = isSameAlbum(t.album, baseEntry.album);
+
+          return nameMatch && artistMatch && albumMatch;
+        });
+
+        let nextLibrary;
+
+        if (existingIndex >= 0) {
+          // Update existing entry (merge)
+          const existing = prev[existingIndex];
+          const mergedEntry = {
+            ...existing,      // Keep existing IDs, stats, etc.
+            ...baseEntry,     // Overwrite with new info (e.g. new URI, better metadata)
+            // Explicitly preserve accumulated stats if baseEntry is missing them
+            favorite: existing.favorite !== undefined ? existing.favorite : baseEntry.favorite,
+            playCount: Math.max(existing.playCount || 0, baseEntry.playCount || 0),
+            lastPlayed: Math.max(existing.lastPlayed || 0, baseEntry.lastPlayed || 0),
+            dateAdded: existing.dateAdded || Date.now(), // Keep original add date
+          };
+
+          nextLibrary = [...prev];
+          nextLibrary[existingIndex] = mergedEntry;
         } else {
-          // For remote tracks without URI yet, try to dedupe by name+artist
-          filtered = prev.filter(t =>
-            !((t.name === entry.name) && (t.artist === entry.artist || t.artist?.name === entry.artist?.name))
-          );
+          // Add new entry
+          const newEntry = {
+            ...baseEntry,
+            dateAdded: Date.now(),
+          };
+          nextLibrary = [...prev, newEntry];
         }
 
-        const next = [...filtered, entry];
-        saveLibrary(next);
-        return next;
+        saveLibrary(nextLibrary);
+        return nextLibrary;
       });
     } catch (e) {
       console.warn('Failed to add track to library', e);
@@ -1603,11 +1658,15 @@ function AppContent() {
       const files = result.assets ?? [result];
 
       setLoading(true);
+      setIsImporting(true);
+      setImportProgress(0);
       let lastTrack = null;
+      const totalFiles = files.length;
 
       try {
         // Process all selected files
-        for (const file of files) {
+        for (let i = 0; i < totalFiles; i++) {
+          const file = files[i];
           let baseTrack = null;
           try {
             const metadata = await getAudioMetadata(file.uri);
@@ -1720,14 +1779,13 @@ function AppContent() {
 
           await addToLibrary(baseTrack, file.uri, file.name);
           lastTrack = baseTrack;
+          setImportProgress((i + 1) / totalFiles);
         }
 
-        // Set the last imported track as current
-        if (lastTrack) {
-          setCurrentTrack({ ...lastTrack });
-        }
       } finally {
         setLoading(false);
+        setIsImporting(false);
+        setImportProgress(0);
       }
     } catch (e) {
       console.warn('Error picking audio file', e);
@@ -1933,7 +1991,7 @@ function AppContent() {
     }
   };
 
-  const addAlbumToQueue = (tracks) => {
+  const addAlbumToQueue = (tracks, playImmediately = false) => {
     if (!tracks || tracks.length === 0) return;
 
     // Haptic feedback
@@ -1947,7 +2005,17 @@ function AppContent() {
       // Add all tracks to the end of the current queue
       const newQueue = [...currentQueue, ...tracks];
       setCurrentQueue(newQueue);
-      showQueueNotification(`Added ${tracks.length} songs to queue`);
+
+      if (playImmediately) {
+        const newIndex = currentQueue.length; // Index of the first added track
+        setCurrentTrack(tracks[0]);
+        setCurrentQueueIndex(newIndex);
+        setShouldAutoPlay(true);
+        setIsPlayerExpanded(true);
+        showQueueNotification(`Playing "${tracks[0].name}"`);
+      } else {
+        showQueueNotification(`Added ${tracks.length} songs to queue`);
+      }
     }
   };
 
@@ -2530,6 +2598,27 @@ function AppContent() {
               {queueNotification.message}
             </Text>
           </Animated.View>
+        )}
+
+        {/* Import Progress Bar */}
+        {isImporting && (
+          <View style={[styles.importProgressContainer, { top: insets.top + 60, backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.importProgressHeader}>
+              <Text style={[styles.importProgressTitle, { color: theme.primaryText }]}>Importing Songs</Text>
+              <Text style={[styles.importProgressPercent, { color: theme.secondaryText }]}>{Math.round(importProgress * 100)}%</Text>
+            </View>
+            <View style={[styles.importProgressBarBackground, { backgroundColor: theme.border }]}>
+              <View 
+                style={[
+                  styles.importProgressBarFill, 
+                  { 
+                    backgroundColor: theme.accent,
+                    width: `${importProgress * 100}%` 
+                  }
+                ]} 
+              />
+            </View>
+          </View>
         )}
 
 
@@ -3172,5 +3261,42 @@ const styles = StyleSheet.create({
   settingsRowText: {
     fontSize: 17,
     fontWeight: '500',
+  },
+  importProgressContainer: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    zIndex: 2005,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  importProgressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  importProgressTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  importProgressPercent: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  importProgressBarBackground: {
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  importProgressBarFill: {
+    height: '100%',
+    borderRadius: 3,
   },
 });

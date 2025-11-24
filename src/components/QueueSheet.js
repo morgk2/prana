@@ -9,11 +9,13 @@ import {
   ScrollView,
   Animated,
   PanResponder,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { getArtworkWithFallback } from '../utils/artworkFallback';
+import SwipeableQueueRow from './SwipeableQueueRow';
 
 function pickImageUrl(images, preferredSize = 'extralarge') {
   if (!Array.isArray(images)) return null;
@@ -25,8 +27,9 @@ function pickImageUrl(images, preferredSize = 'extralarge') {
 
 const ROW_HEIGHT = 64;
 
-export default function QueueSheet({ visible, onClose, queue, currentIndex, onReorder, onTrackSelect }) {
+export default function QueueSheet({ visible, onClose, queue, currentIndex, onReorder, onTrackSelect, onDelete }) {
   const insets = useSafeAreaInsets();
+  const { height: screenHeight } = useWindowDimensions();
   const [localQueue, setLocalQueue] = useState(queue);
   const [draggedIndex, setDraggedIndex] = useState(null);
   const [draggedOverIndex, setDraggedOverIndex] = useState(null);
@@ -35,6 +38,13 @@ export default function QueueSheet({ visible, onClose, queue, currentIndex, onRe
   const [isShuffling, setIsShuffling] = useState(false);
   const shuffleOpacity = useRef(new Animated.Value(1)).current;
   const [trackArtwork, setTrackArtwork] = useState({});
+  const dismissAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      dismissAnim.setValue(0);
+    }
+  }, [visible]);
 
   // keep a ref so PanResponder always sees latest queue
   const localQueueRef = useRef(localQueue);
@@ -222,6 +232,81 @@ export default function QueueSheet({ visible, onClose, queue, currentIndex, onRe
     })
   ).current;
 
+  const handleDelete = (index) => {
+    if (index === currentIndex) {
+      // Can't delete the currently playing track
+      return;
+    }
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    const newQueue = [...localQueue];
+    newQueue.splice(index, 1);
+
+    // Adjust currentIndex if needed
+    let newCurrentIndex = currentIndex;
+    if (index < currentIndex) {
+      newCurrentIndex--;
+    }
+
+    setLocalQueue(newQueue);
+    if (onDelete) {
+      onDelete(newQueue, newCurrentIndex);
+    }
+  };
+
+  const dismissPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // Only start if dragging down and near the top (header area or queue info)
+        const isDraggingDown = gestureState.dy > 5;
+        const isVerticalDominant = Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
+        const touchY = evt.nativeEvent.pageY;
+        // Allow swiping from the top portion of the screen (header + now playing area)
+        const isNearTop = touchY < (screenHeight * 0.6);
+        return isDraggingDown && isVerticalDominant && isNearTop && draggedIndexRef.current === null;
+      },
+      onPanResponderGrant: () => {
+        dismissAnim.setValue(0);
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (gestureState.dy > 0) {
+          dismissAnim.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        if (gestureState.dy > screenHeight * 0.2 || gestureState.vy > 0.5) {
+          // Dismiss the sheet
+          Animated.timing(dismissAnim, {
+            toValue: screenHeight,
+            duration: 250,
+            useNativeDriver: false,
+          }).start(() => {
+            // dismissAnim.setValue(0); // Reset on next open instead
+            if (onClose) onClose();
+          });
+        } else {
+          // Snap back
+          Animated.spring(dismissAnim, {
+            toValue: 0,
+            useNativeDriver: false,
+            tension: 100,
+            friction: 10,
+          }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(dismissAnim, {
+          toValue: 0,
+          useNativeDriver: false,
+          tension: 100,
+          friction: 10,
+        }).start();
+      },
+    })
+  ).current;
+
   const renderTrack = (track, index) => {
     const isCurrentTrack = index === currentIndex;
     const isDragging = draggedIndex === index;
@@ -242,71 +327,76 @@ export default function QueueSheet({ visible, onClose, queue, currentIndex, onRe
 
     return (
       <View key={`queue-track-${index}-${trackKey}`}>
-        <Animated.View
-          {...panResponder.panHandlers}
-          style={{
-            opacity: isDragging ? 0.9 : 1,
-            transform: [
-              {
-                translateY: isDragging ? dragY : itemOffsets[trackKey],
-              },
-              { scale: isDragging ? 1.02 : 1 },
-            ],
-          }}
+        <SwipeableQueueRow
+          onDelete={() => handleDelete(index)}
+          enabled={!isCurrentTrack && draggedIndex === null}
         >
-          <Pressable
-            onPress={() => {
-              if (draggedIndex === null) {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                onTrackSelect(track, index);
-              }
+          <Animated.View
+            {...panResponder.panHandlers}
+            style={{
+              opacity: isDragging ? 0.9 : 1,
+              transform: [
+                {
+                  translateY: isDragging ? dragY : itemOffsets[trackKey],
+                },
+                { scale: isDragging ? 1.02 : 1 },
+              ],
             }}
-            onLongPress={() => startDrag(index)}
-            delayLongPress={300}
-            style={[
-              styles.queueTrack,
-              isCurrentTrack && styles.currentTrack,
-              isDragging && styles.draggingTrack,
-            ]}
           >
-            {/* Album Art */}
-            {imageUrl ? (
-              <Image source={{ uri: imageUrl }} style={styles.queueArtwork} />
-            ) : (
-              <View style={[styles.queueArtwork, styles.placeholderArtwork]}>
-                <Ionicons name="musical-note" size={20} color="rgba(255,255,255,0.3)" />
+            <Pressable
+              onPress={() => {
+                if (draggedIndex === null) {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onTrackSelect(track, index);
+                }
+              }}
+              onLongPress={() => startDrag(index)}
+              delayLongPress={300}
+              style={[
+                styles.queueTrack,
+                isCurrentTrack && styles.currentTrack,
+                isDragging && styles.draggingTrack,
+              ]}
+            >
+              {/* Album Art */}
+              {imageUrl ? (
+                <Image source={{ uri: imageUrl }} style={styles.queueArtwork} />
+              ) : (
+                <View style={[styles.queueArtwork, styles.placeholderArtwork]}>
+                  <Ionicons name="musical-note" size={20} color="rgba(255,255,255,0.3)" />
+                </View>
+              )}
+
+              {/* Track Info */}
+              <View style={styles.queueTrackInfo}>
+                <Text
+                  style={[
+                    styles.queueTrackName,
+                    isCurrentTrack && styles.currentTrackText,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {track.name}
+                </Text>
+                <Text style={styles.queueTrackArtist} numberOfLines={1}>
+                  {track.artist?.name ?? track.artist}
+                </Text>
               </View>
-            )}
 
-            {/* Track Info */}
-            <View style={styles.queueTrackInfo}>
-              <Text
-                style={[
-                  styles.queueTrackName,
-                  isCurrentTrack && styles.currentTrackText,
-                ]}
-                numberOfLines={1}
-              >
-                {track.name}
-              </Text>
-              <Text style={styles.queueTrackArtist} numberOfLines={1}>
-                {track.artist?.name ?? track.artist}
-              </Text>
-            </View>
+              {/* Current Playing Indicator */}
+              {isCurrentTrack && (
+                <View style={styles.nowPlayingIndicator}>
+                  <Ionicons name="volume-high" size={18} color="#fff" />
+                </View>
+              )}
 
-            {/* Current Playing Indicator */}
-            {isCurrentTrack && (
-              <View style={styles.nowPlayingIndicator}>
-                <Ionicons name="volume-high" size={18} color="#fff" />
+              {/* Drag Handle */}
+              <View style={styles.dragHandle}>
+                <Ionicons name="reorder-three" size={24} color="rgba(255,255,255,0.5)" />
               </View>
-            )}
-
-            {/* Drag Handle */}
-            <View style={styles.dragHandle}>
-              <Ionicons name="reorder-three" size={24} color="rgba(255,255,255,0.5)" />
-            </View>
-          </Pressable>
-        </Animated.View>
+            </Pressable>
+          </Animated.View>
+        </SwipeableQueueRow>
       </View>
     );
   };
@@ -314,13 +404,25 @@ export default function QueueSheet({ visible, onClose, queue, currentIndex, onRe
   return (
     <Modal
       visible={visible}
+      transparent={true}
       animationType="slide"
-      transparent
       onRequestClose={onClose}
     >
-      <View
-        style={[styles.container, { paddingTop: insets.top }]}
+      <Animated.View
+        {...dismissPanResponder.panHandlers}
+        style={[
+          styles.container,
+          {
+            paddingTop: insets.top,
+            transform: [{ translateY: dismissAnim }]
+          }
+        ]}
       >
+        {/* Drag Handle Indicator */}
+        <View style={styles.dragHandleContainer}>
+          <View style={styles.dragHandleBar} />
+        </View>
+
         {/* Header */}
         <View style={styles.header}>
           <Pressable onPress={onClose} style={styles.closeButton} hitSlop={16}>
@@ -350,53 +452,93 @@ export default function QueueSheet({ visible, onClose, queue, currentIndex, onRe
           <Animated.View style={[styles.nextUpSection, { opacity: shuffleOpacity }]}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Next Up</Text>
-              {localQueue.length > 1 && (
-                <Pressable
-                  style={styles.shuffleIconButton}
-                  onPress={() => {
-                    if (localQueue.length <= 1 || isShuffling) return;
+              <View style={styles.queueActions}>
+                {localQueue.length > 1 && (
+                  <>
+                    <Pressable
+                      style={styles.clearButton}
+                      onPress={() => {
+                        if (localQueue.length <= 1 || isShuffling) return;
 
-                    setIsShuffling(true);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        setIsShuffling(true);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-                    // Animate out
-                    Animated.timing(shuffleOpacity, {
-                      toValue: 0,
-                      duration: 200,
-                      useNativeDriver: true,
-                    }).start(() => {
-                      // Shuffle the queue
-                      const currentTrack = localQueue[currentIndex];
-                      const otherTracks = localQueue.filter((_, idx) => idx !== currentIndex);
+                        // Animate out
+                        Animated.timing(shuffleOpacity, {
+                          toValue: 0,
+                          duration: 200,
+                          useNativeDriver: true,
+                        }).start(() => {
+                          // Keep only the current track
+                          const currentTrack = localQueue[currentIndex];
+                          const clearedQueue = [currentTrack];
 
-                      // Fisher-Yates shuffle
-                      for (let i = otherTracks.length - 1; i > 0; i--) {
-                        const j = Math.floor(Math.random() * (i + 1));
-                        [otherTracks[i], otherTracks[j]] = [otherTracks[j], otherTracks[i]];
-                      }
+                          setLocalQueue(clearedQueue);
+                          onReorder(clearedQueue, 0);
 
-                      // Put current track at the beginning
-                      const shuffledQueue = [currentTrack, ...otherTracks];
+                          // Animate back in
+                          Animated.spring(shuffleOpacity, {
+                            toValue: 1,
+                            useNativeDriver: true,
+                            tension: 100,
+                            friction: 10,
+                          }).start(() => {
+                            setIsShuffling(false);
+                          });
+                        });
+                      }}
+                      disabled={isShuffling}
+                    >
+                      <Text style={styles.clearButtonText}>CLEAR</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.shuffleIconButton}
+                      onPress={() => {
+                        if (localQueue.length <= 1 || isShuffling) return;
 
-                      setLocalQueue(shuffledQueue);
-                      onReorder(shuffledQueue, 0);
+                        setIsShuffling(true);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-                      // Animate back in
-                      Animated.spring(shuffleOpacity, {
-                        toValue: 1,
-                        useNativeDriver: true,
-                        tension: 100,
-                        friction: 10,
-                      }).start(() => {
-                        setIsShuffling(false);
-                      });
-                    });
-                  }}
-                  disabled={isShuffling}
-                >
-                  <Ionicons name="shuffle" size={20} color="rgba(255,255,255,0.6)" />
-                </Pressable>
-              )}
+                        // Animate out
+                        Animated.timing(shuffleOpacity, {
+                          toValue: 0,
+                          duration: 200,
+                          useNativeDriver: true,
+                        }).start(() => {
+                          // Shuffle the queue
+                          const currentTrack = localQueue[currentIndex];
+                          const otherTracks = localQueue.filter((_, idx) => idx !== currentIndex);
+
+                          // Fisher-Yates shuffle
+                          for (let i = otherTracks.length - 1; i > 0; i--) {
+                            const j = Math.floor(Math.random() * (i + 1));
+                            [otherTracks[i], otherTracks[j]] = [otherTracks[j], otherTracks[i]];
+                          }
+
+                          // Put current track at the beginning
+                          const shuffledQueue = [currentTrack, ...otherTracks];
+
+                          setLocalQueue(shuffledQueue);
+                          onReorder(shuffledQueue, 0);
+
+                          // Animate back in
+                          Animated.spring(shuffleOpacity, {
+                            toValue: 1,
+                            useNativeDriver: true,
+                            tension: 100,
+                            friction: 10,
+                          }).start(() => {
+                            setIsShuffling(false);
+                          });
+                        });
+                      }}
+                      disabled={isShuffling}
+                    >
+                      <Ionicons name="shuffle" size={20} color="rgba(255,255,255,0.6)" />
+                    </Pressable>
+                  </>
+                )}
+              </View>
             </View>
             <ScrollView
               style={styles.scrollView}
@@ -426,7 +568,7 @@ export default function QueueSheet({ visible, onClose, queue, currentIndex, onRe
             </Pressable>
           </View>
         )}
-      </View>
+      </Animated.View>
     </Modal>
   );
 }
@@ -435,6 +577,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#121212',
+  },
+  dragHandleContainer: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  dragHandleBar: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
   },
   header: {
     flexDirection: 'row',
@@ -486,6 +639,23 @@ const styles = StyleSheet.create({
   },
   shuffleIconButton: {
     padding: 8,
+  },
+  queueActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  clearButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  clearButtonText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
   scrollView: {
     flex: 1,

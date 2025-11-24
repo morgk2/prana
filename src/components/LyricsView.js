@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { getLyrics } from '../api/lrclib';
 import { parseLrc } from '../utils/lrcParser';
 import { fetchAndCacheLyrics } from '../utils/lyricsCache';
@@ -64,7 +65,7 @@ const LyricLine = ({ item, isActive, onPress }) => {
     );
 };
 
-export default function LyricsView({ track, currentTime, duration, onSeek, onInteraction, style }) {
+export default function LyricsView({ track, currentTime, duration, onSeek, onInteraction, style, backgroundColor = '#202020' }) {
     const [loading, setLoading] = useState(false);
     const [lyricsData, setLyricsData] = useState(null);
     const [parsedLyrics, setParsedLyrics] = useState([]);
@@ -295,6 +296,17 @@ if (parsedLyrics.length > 0) {
                 onScrollEndDrag={handleScrollEnd}
 
             />
+            <LinearGradient
+                colors={['transparent', backgroundColor]}
+                style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: 120,
+                }}
+                pointerEvents="none"
+            />
         </View>
     );
 }
@@ -324,6 +336,17 @@ if (lyricsData?.plainLyrics) {
                 contentContainerStyle={styles.listContent}
                 showsVerticalScrollIndicator={false}
             />
+            <LinearGradient
+                colors={['transparent', backgroundColor]}
+                style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: 120,
+                }}
+                pointerEvents="none"
+            />
         </View>
     );
 }
@@ -345,7 +368,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     listContent: {
-        paddingTop: 60,
+        paddingTop: 20,
         paddingBottom: '80%',
         paddingHorizontal: 24,
     },

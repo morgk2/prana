@@ -95,7 +95,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
   const [selectedPlaylists, setSelectedPlaylists] = useState(new Set());
   const sheetAnim = useRef(new Animated.Value(0)).current;
   const trackRefs = useRef({});
-  
+
   // Animate sheet
   useEffect(() => {
     if (playlistSheetVisible) {
@@ -112,7 +112,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
       }).start();
     }
   }, [playlistSheetVisible]);
-  
+
   // Handle playlist selection
   const togglePlaylistSelection = (playlistId) => {
     setSelectedPlaylists(prev => {
@@ -125,7 +125,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
       return newSet;
     });
   };
-  
+
   // Add track to selected playlists
   const handleAddToSelectedPlaylists = () => {
     if (selectedTrackForPlaylist && selectedPlaylists.size > 0 && addTrackToPlaylist) {
@@ -140,7 +140,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
     setSelectedTrackForPlaylist(null);
     setSelectedPlaylists(new Set());
   };
-  
+
   // Close sheet
   const closePlaylistSheet = () => {
     setPlaylistSheetVisible(false);
@@ -159,55 +159,55 @@ export default function LibraryAlbumPage({ route, navigation }) {
   const albumMenuButtonRef = useRef(null);
 
   const isAlbumInLibrary = React.useMemo(() => {
-      if (!libraryAlbums) return false;
-      // Normalize current album details
-      const name = (album.title || album.name || '').toLowerCase().trim();
-      const artist = (typeof album.artist === 'object' ? album.artist.name : album.artist || '').toLowerCase().trim();
-      
-      return libraryAlbums.some(a => {
-          const aName = (a.title || a.name || '').toLowerCase().trim();
-          const aArtist = (typeof a.artist === 'object' ? a.artist.name : a.artist || '').toLowerCase().trim();
-          return aName === name && aArtist === artist;
-      });
+    if (!libraryAlbums) return false;
+    // Normalize current album details
+    const name = (album.title || album.name || '').toLowerCase().trim();
+    const artist = (typeof album.artist === 'object' ? album.artist.name : album.artist || '').toLowerCase().trim();
+
+    return libraryAlbums.some(a => {
+      const aName = (a.title || a.name || '').toLowerCase().trim();
+      const aArtist = (typeof a.artist === 'object' ? a.artist.name : a.artist || '').toLowerCase().trim();
+      return aName === name && aArtist === artist;
+    });
   }, [libraryAlbums, album]);
 
   // Derive tracks once
   const allTracks = React.useMemo(() => {
     const tracks = spotifyTracks.length > 0 ? spotifyTracks : album.tracks;
     return tracks.map((track, index) => {
-        // Check if this track exists in local library
-        const libraryToCheck = library || album.tracks;
-        const localTrack = libraryToCheck.find(t =>
-            t.name?.toLowerCase().trim() === track.name?.toLowerCase().trim()
-        );
+      // Check if this track exists in local library
+      const libraryToCheck = library || album.tracks;
+      const localTrack = libraryToCheck.find(t =>
+        t.name?.toLowerCase().trim() === track.name?.toLowerCase().trim()
+      );
 
-        const isDownloaded = downloadedTracks.has(track.id) || downloadedTracks.has(track.name);
-        const recentUri = recentDownloads ? (recentDownloads[track.id] || recentDownloads[track.name]) : null;
-        
-        // If local, return local track enriched with index/number
-        if (localTrack || isDownloaded) {
-            const baseTrack = localTrack || track;
-            return {
-                ...baseTrack,
-                track_number: track.track_number || track.trackNumber || index + 1,
-                // Ensure image is present if missing on local track
-                image: (baseTrack.image && baseTrack.image.length > 0) ? baseTrack.image : 
-                       (album.artwork ? [{ '#text': album.artwork, size: 'extralarge' }] : []),
-                // If it was found in downloadedTracks but not libraryToCheck, force isLocal=true so it displays correctly
-                isLocal: true,
-                uri: recentUri || baseTrack.uri || (isDownloaded ? 'file://downloaded' : undefined) 
-            };
-        }
+      const isDownloaded = downloadedTracks.has(track.id) || downloadedTracks.has(track.name);
+      const recentUri = recentDownloads ? (recentDownloads[track.id] || recentDownloads[track.name]) : null;
 
-        // If remote, return track enriched with album metadata
+      // If local, return local track enriched with index/number
+      if (localTrack || isDownloaded) {
+        const baseTrack = localTrack || track;
         return {
-            ...track,
-            artist: track.artist || track.artists?.[0]?.name || album.artist,
-            album: track.album || album.title,
-            image: (track.image && track.image.length > 0) ? track.image : 
-                   (album.artwork ? [{ '#text': album.artwork, size: 'extralarge' }] : []),
-            track_number: track.track_number || track.trackNumber || index + 1,
+          ...baseTrack,
+          track_number: track.track_number || track.trackNumber || index + 1,
+          // Ensure image is present if missing on local track
+          image: (baseTrack.image && baseTrack.image.length > 0) ? baseTrack.image :
+            (album.artwork ? [{ '#text': album.artwork, size: 'extralarge' }] : []),
+          // If it was found in downloadedTracks but not libraryToCheck, force isLocal=true so it displays correctly
+          isLocal: true,
+          uri: recentUri || baseTrack.uri || (isDownloaded ? 'file://downloaded' : undefined)
         };
+      }
+
+      // If remote, return track enriched with album metadata
+      return {
+        ...track,
+        artist: track.artist || track.artists?.[0]?.name || album.artist,
+        album: track.album || album.title,
+        image: (track.image && track.image.length > 0) ? track.image :
+          (album.artwork ? [{ '#text': album.artwork, size: 'extralarge' }] : []),
+        track_number: track.track_number || track.trackNumber || index + 1,
+      };
     });
   }, [spotifyTracks, album.tracks, library, album.artwork, album.artist, album.title, downloadedTracks]);
 
@@ -319,10 +319,10 @@ export default function LibraryAlbumPage({ route, navigation }) {
       ref.measure((x, y, width, height, pageX, pageY) => {
         const MENU_HEIGHT = 220; // Approximate height of the menu
         const OFFSET = 60; // Overlap offset
-        
+
         // Default position (below with overlap)
         let finalY = pageY + height - OFFSET;
-        
+
         // If menu would go off screen bottom OR it's the last item, show above instead
         if (isLastItem || (finalY + MENU_HEIGHT > screenHeight - 20)) { // 20px buffer
           finalY = pageY - MENU_HEIGHT + OFFSET;
@@ -407,78 +407,78 @@ export default function LibraryAlbumPage({ route, navigation }) {
   const handleDownloadAlbum = async () => {
     if (!useTidalForUnowned) return;
     closeAlbumMenu();
-    
+
     const tracksToDownload = allTracks.filter(t => {
-       const isLocal = t.uri && t.uri.startsWith('file://');
-       return !isLocal;
+      const isLocal = t.uri && t.uri.startsWith('file://');
+      return !isLocal;
     });
 
     if (tracksToDownload.length === 0) {
-        alert('All tracks are already downloaded');
-        return;
+      alert('All tracks are already downloaded');
+      return;
     }
 
     startAlbumDownload(album.key, tracksToDownload);
   };
 
   const handleAddAlbumToLibrary = async () => {
-      if (!addToLibrary) return;
-      closeAlbumMenu();
-      
-      // Add all tracks to library as remote tracks
-      for (const track of allTracks) {
-          // Ensure we have necessary metadata
-          const trackToAdd = {
-              ...track,
-              album: album.title || album.name,
-              image: album.artwork ? [{ '#text': album.artwork, size: 'extralarge' }] : track.image,
-          };
-          await addToLibrary(trackToAdd, null, track.name);
-      }
-      if (showNotification) {
-          showNotification('Album added to library');
-      } else {
-          alert('Album added to library');
-      }
+    if (!addToLibrary) return;
+    closeAlbumMenu();
+
+    // Add all tracks to library as remote tracks
+    for (const track of allTracks) {
+      // Ensure we have necessary metadata
+      const trackToAdd = {
+        ...track,
+        album: album.title || album.name,
+        image: album.artwork ? [{ '#text': album.artwork, size: 'extralarge' }] : track.image,
+      };
+      await addToLibrary(trackToAdd, null, track.name);
+    }
+    if (showNotification) {
+      showNotification('Album added to library');
+    } else {
+      alert('Album added to library');
+    }
   };
 
   const renderProgressCircle = () => {
-      const albumProgress = albumDownloads[album.key];
-      const progress = albumProgress ? albumProgress.progress : 0;
-      
-      const size = 24;
-      const strokeWidth = 6;
-      const center = size / 2;
-      const radius = (size - strokeWidth) / 2;
-      const circumference = 2 * Math.PI * radius;
-      const strokeDashoffset = circumference - (progress * circumference);
+    const albumProgress = albumDownloads[album.key];
+    const progress = albumProgress ? albumProgress.progress : 0;
 
-      return (
-        <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
-          <Svg width={size} height={size}>
-            <Circle
-              stroke="white"
-              cx={center}
-              cy={center}
-              r={radius}
-              strokeWidth={strokeWidth}
-            />
-            <Circle
-              stroke="black"
-              cx={center}
-              cy={center}
-              r={radius}
-              strokeWidth={strokeWidth}
-              strokeDasharray={circumference}
-              strokeDashoffset={strokeDashoffset}
-              strokeLinecap="round"
-              rotation="-90"
-              origin={`${center}, ${center}`}
-            />
-          </Svg>
-          <View style={{ position: 'absolute', width: 8, height: 8, backgroundColor: 'black', borderRadius: 1 }} />
-        </View>
-      );
+    const size = 24;
+    const strokeWidth = 6;
+    const center = size / 2;
+    const radius = (size - strokeWidth) / 2;
+    const circumference = 2 * Math.PI * radius;
+    const strokeDashoffset = circumference - (progress * circumference);
+
+    return (
+      <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
+        <Svg width={size} height={size}>
+          <Circle
+            stroke="white"
+            cx={center}
+            cy={center}
+            r={radius}
+            strokeWidth={strokeWidth}
+          />
+          <Circle
+            stroke="black"
+            cx={center}
+            cy={center}
+            r={radius}
+            strokeWidth={strokeWidth}
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+            rotation="-90"
+            origin={`${center}, ${center}`}
+          />
+        </Svg>
+        <View style={{ position: 'absolute', width: 8, height: 8, backgroundColor: 'black', borderRadius: 1 }} />
+      </View>
+    );
   };
 
   // Handle playing unowned tracks via Tidal
@@ -528,37 +528,48 @@ export default function LibraryAlbumPage({ route, navigation }) {
 
   const confirmAndPlayTrack = (track, index, isLocal) => {
     Alert.alert(
-        "Play Track",
-        "Add the rest of the album to the queue?",
-        [
-            {
-                text: "No",
-                onPress: () => {
-                    if (isLocal) {
-                        if (onTrackPress) onTrackPress(track, [track], 0);
-                    } else {
-                        handleUnownedTrackPress(track, index, false);
-                    }
-                }
-            },
-            {
-                text: "Yes",
-                onPress: () => {
-                     if (isLocal) {
-                        if (onTrackPress) onTrackPress(track, allTracks, index);
-                    } else {
-                        handleUnownedTrackPress(track, index, true);
-                    }
-                }
-            },
-            {
-                text: "Cancel",
-                style: "cancel"
+      "Play Track",
+      "Add the rest of the album to the queue?",
+      [
+        {
+          text: "No",
+          onPress: () => {
+            if (isLocal) {
+              if (onTrackPress) onTrackPress(track, [track], 0);
+            } else {
+              handleUnownedTrackPress(track, index, false);
             }
-        ]
+          }
+        },
+        {
+          text: "Yes",
+          onPress: () => {
+            if (isLocal) {
+              if (addAlbumToQueue) {
+                const remainingTracks = allTracks.filter((_, idx) => idx !== index);
+                const tracksToAdd = [track, ...remainingTracks];
+                addAlbumToQueue(tracksToAdd, true);
+              } else if (onTrackPress) {
+                onTrackPress(track, allTracks, index);
+              }
+            } else {
+              if (addAlbumToQueue) {
+                const remainingTracks = allTracks.filter((_, idx) => idx !== index);
+                const tracksToAdd = [track, ...remainingTracks];
+                addAlbumToQueue(tracksToAdd, true);
+              } else {
+                handleUnownedTrackPress(track, index, true);
+              }
+            }
+          }
+        },
+        {
+          text: "Cancel",
+          style: "cancel"
+        }
+      ]
     );
   };
-
 
   const handleEditTrack = () => {
     setEditTrackName(contextMenuTrack.name);
@@ -640,8 +651,8 @@ export default function LibraryAlbumPage({ route, navigation }) {
           {(() => {
             // Determine if this specific album is playing
             const isAlbumPlaying = isPlaying && currentTrack && (
-                (currentTrack.album === album.title || currentTrack.album === album.name) &&
-                (currentTrack.artist === (typeof album.artist === 'object' ? album.artist.name : album.artist))
+              (currentTrack.album === album.title || currentTrack.album === album.name) &&
+              (currentTrack.artist === (typeof album.artist === 'object' ? album.artist.name : album.artist))
             );
             return (
               <Pressable
@@ -693,8 +704,8 @@ export default function LibraryAlbumPage({ route, navigation }) {
 
             // Check if this track is currently playing
             const isTrackPlaying = currentTrack && (
-               (track.uri && currentTrack.uri && track.uri === currentTrack.uri) || 
-               (track.name === currentTrack.name && track.artist === currentTrack.artist)
+              (track.uri && currentTrack.uri && track.uri === currentTrack.uri) ||
+              (track.name === currentTrack.name && track.artist === currentTrack.artist)
             );
             const showPlayingIndicator = isTrackPlaying && isPlaying;
 
@@ -730,7 +741,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
                         {showPlayingIndicator ? (
                           <PlayingIndicator color={theme.primaryText} />
                         ) : (
-                          <Text style={[styles.trackNumber, { 
+                          <Text style={[styles.trackNumber, {
                             color: isTrackPlaying ? theme.primaryText : theme.secondaryText,
                             fontWeight: isTrackPlaying ? 'bold' : 'normal'
                           }]}>
@@ -739,14 +750,14 @@ export default function LibraryAlbumPage({ route, navigation }) {
                         )}
                       </View>
                       <View style={styles.trackInfo}>
-                        <Text 
+                        <Text
                           style={[
-                            styles.trackName, 
-                            { 
+                            styles.trackName,
+                            {
                               color: isTrackPlaying ? theme.primaryText : theme.primaryText,
                               fontWeight: isTrackPlaying ? '700' : '400'
                             }
-                          ]} 
+                          ]}
                           numberOfLines={1}
                         >
                           {track.name}
@@ -756,7 +767,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
                         </Text>
                       </View>
                       {track.favorite && (
-                          <Ionicons name="star" size={16} color={theme.primaryText} style={{ marginRight: 8 }} />
+                        <Ionicons name="star" size={16} color={theme.primaryText} style={{ marginRight: 8 }} />
                       )}
                       <Pressable onPress={() => openContextMenu(track, trackKey, index === allTracks.length - 1)} hitSlop={10}>
                         <Ionicons name="ellipsis-horizontal" size={20} color={theme.secondaryText} />
@@ -770,26 +781,26 @@ export default function LibraryAlbumPage({ route, navigation }) {
                     style={[styles.trackRow, { borderBottomColor: theme.border }]}
                   >
                     <View style={styles.trackNumberContainer}>
-                        {showPlayingIndicator ? (
-                          <PlayingIndicator color={theme.primaryText} />
-                        ) : (
-                          <Text style={[styles.trackNumber, { 
-                            color: isTrackPlaying ? theme.primaryText : theme.secondaryText,
-                            fontWeight: isTrackPlaying ? 'bold' : 'normal'
-                          }]}>
-                            {trackNum}
-                          </Text>
-                        )}
+                      {showPlayingIndicator ? (
+                        <PlayingIndicator color={theme.primaryText} />
+                      ) : (
+                        <Text style={[styles.trackNumber, {
+                          color: isTrackPlaying ? theme.primaryText : theme.secondaryText,
+                          fontWeight: isTrackPlaying ? 'bold' : 'normal'
+                        }]}>
+                          {trackNum}
+                        </Text>
+                      )}
                     </View>
                     <View style={styles.trackInfo}>
-                      <Text 
+                      <Text
                         style={[
-                          styles.trackName, 
-                          { 
+                          styles.trackName,
+                          {
                             color: isTrackPlaying ? theme.primaryText : theme.secondaryText,
                             fontWeight: isTrackPlaying ? '700' : '400'
                           }
-                        ]} 
+                        ]}
                         numberOfLines={1}
                       >
                         {track.name}
@@ -799,33 +810,33 @@ export default function LibraryAlbumPage({ route, navigation }) {
                       </Text>
                     </View>
                     {track.favorite && (
-                        <Ionicons name="star" size={16} color={theme.primaryText} style={{ marginRight: 8 }} />
+                      <Ionicons name="star" size={16} color={theme.primaryText} style={{ marginRight: 8 }} />
                     )}
                     {useTidalForUnowned ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                         {/* Only show download option if album is in library */}
                         {isAlbumInLibrary && (
-                            <>
-                                {activeDownloads[track.id || track.name] !== undefined ? (
-                                <View style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}>
-                                    <ActivityIndicator size="small" color={theme.accent} />
-                                </View>
-                                ) : (
-                                <Pressable
-                                    onPress={(e) => {
-                                    handleDownloadTrack(track);
-                                    }}
-                                    style={({ pressed }) => ({
-                                    opacity: pressed ? 0.5 : 1,
-                                    padding: 10, // Increase touch target
-                                    margin: -10, // Offset margin to keep layout tight but touch area large
-                                    })}
-                                    hitSlop={16}
-                                >
-                                    <Ionicons name="download-outline" size={22} color={theme.secondaryText} />
-                                </Pressable>
-                                )}
-                            </>
+                          <>
+                            {activeDownloads[track.id || track.name] !== undefined ? (
+                              <View style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}>
+                                <ActivityIndicator size="small" color={theme.accent} />
+                              </View>
+                            ) : (
+                              <Pressable
+                                onPress={(e) => {
+                                  handleDownloadTrack(track);
+                                }}
+                                style={({ pressed }) => ({
+                                  opacity: pressed ? 0.5 : 1,
+                                  padding: 10, // Increase touch target
+                                  margin: -10, // Offset margin to keep layout tight but touch area large
+                                })}
+                                hitSlop={16}
+                              >
+                                <Ionicons name="download-outline" size={22} color={theme.secondaryText} />
+                              </Pressable>
+                            )}
+                          </>
                         )}
                         {/* Always show cloud icon for unowned remote tracks */}
                         <Ionicons name="cloud-outline" size={16} color={theme.accent} />
@@ -874,18 +885,18 @@ export default function LibraryAlbumPage({ route, navigation }) {
         </Pressable>
 
         <View>
-            {albumDownloads[album.key]?.isDownloading ? (
-                renderProgressCircle()
-            ) : (
-                <Pressable 
-                    ref={albumMenuButtonRef}
-                    onPress={openAlbumMenu}
-                    style={{ padding: 8 }}
-                    hitSlop={16}
-                >
-                    <Ionicons name="ellipsis-horizontal" size={24} color={theme.primaryText} />
-                </Pressable>
-            )}
+          {albumDownloads[album.key]?.isDownloading ? (
+            renderProgressCircle()
+          ) : (
+            <Pressable
+              ref={albumMenuButtonRef}
+              onPress={openAlbumMenu}
+              style={{ padding: 8 }}
+              hitSlop={16}
+            >
+              <Ionicons name="ellipsis-horizontal" size={24} color={theme.primaryText} />
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -925,10 +936,10 @@ export default function LibraryAlbumPage({ route, navigation }) {
             ]}
           >
             <Pressable style={styles.contextMenuItem} onPress={() => {
-                if (addAlbumToQueue) {
-                    addAlbumToQueue(album);
-                    closeAlbumMenu();
-                }
+              if (addAlbumToQueue) {
+                addAlbumToQueue(album);
+                closeAlbumMenu();
+              }
             }}>
               <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Add to Queue</Text>
               <Ionicons name="list-outline" size={20} color={theme.primaryText} />
@@ -946,38 +957,38 @@ export default function LibraryAlbumPage({ route, navigation }) {
             </Pressable>
             <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
             <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
-            
+
             {/* Show in library only if NOT in library */}
             {!isAlbumInLibrary && (
-                <>
-                    <Pressable style={styles.contextMenuItem} onPress={handleAddAlbumToLibrary}>
-                    <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Show in library</Text>
-                    <Ionicons name="library-outline" size={20} color={theme.primaryText} />
-                    </Pressable>
-                    <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
-                </>
+              <>
+                <Pressable style={styles.contextMenuItem} onPress={handleAddAlbumToLibrary}>
+                  <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Show in library</Text>
+                  <Ionicons name="library-outline" size={20} color={theme.primaryText} />
+                </Pressable>
+                <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
+              </>
             )}
 
             {/* Only show Download if in library and modules are enabled */}
             {isAlbumInLibrary && useTidalForUnowned && (
-                <>
-                    <Pressable style={styles.contextMenuItem} onPress={handleDownloadAlbum}>
-                    <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Make available offline</Text>
-                    <Ionicons name="download-outline" size={20} color={theme.primaryText} />
-                    </Pressable>
-                    <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
-                </>
+              <>
+                <Pressable style={styles.contextMenuItem} onPress={handleDownloadAlbum}>
+                  <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Make available offline</Text>
+                  <Ionicons name="download-outline" size={20} color={theme.primaryText} />
+                </Pressable>
+                <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
+              </>
             )}
 
             {/* Only show Delete if in library */}
             {isAlbumInLibrary && (
-                <Pressable style={styles.contextMenuItem} onPress={() => {
-                        // Placeholder for delete album
-                        closeAlbumMenu();
-                }}>
-                    <Text style={[styles.contextMenuText, { color: theme.error }]}>Delete</Text>
-                    <Ionicons name="trash-outline" size={20} color={theme.error} />
-                </Pressable>
+              <Pressable style={styles.contextMenuItem} onPress={() => {
+                // Placeholder for delete album
+                closeAlbumMenu();
+              }}>
+                <Text style={[styles.contextMenuText, { color: theme.error }]}>Delete</Text>
+                <Ionicons name="trash-outline" size={20} color={theme.error} />
+              </Pressable>
             )}
           </Animated.View>
         </>
@@ -1109,7 +1120,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
           </View>
         </View>
       </Modal>
-      
+
       {/* Playlist Selection Bottom Sheet */}
       <Modal
         visible={playlistSheetVisible}
@@ -1117,7 +1128,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
         animationType="none"
         onRequestClose={closePlaylistSheet}
       >
-        <Pressable 
+        <Pressable
           style={styles.sheetBackdrop}
           onPress={closePlaylistSheet}
         >
@@ -1136,10 +1147,10 @@ export default function LibraryAlbumPage({ route, navigation }) {
               }
             ]}
           >
-            <Pressable style={{ flex: 1 }} onPress={() => {}}>
+            <Pressable style={{ flex: 1 }} onPress={() => { }}>
               {/* Handle Bar */}
               <View style={[styles.sheetHandle, { backgroundColor: theme.secondaryText, opacity: 0.3 }]} />
-              
+
               {/* Header */}
               <View style={styles.sheetHeader}>
                 <Pressable onPress={closePlaylistSheet} style={styles.sheetHeaderButton} hitSlop={10}>
@@ -1148,8 +1159,8 @@ export default function LibraryAlbumPage({ route, navigation }) {
                 <Text style={[styles.sheetTitle, { color: theme.primaryText }]}>
                   Add to Playlist
                 </Text>
-                <Pressable 
-                  onPress={handleAddToSelectedPlaylists} 
+                <Pressable
+                  onPress={handleAddToSelectedPlaylists}
                   disabled={selectedPlaylists.size === 0}
                   style={[styles.sheetHeaderButton, { opacity: selectedPlaylists.size > 0 ? 1 : 0.3 }]}
                   hitSlop={10}
@@ -1157,7 +1168,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
                   <Text style={[styles.sheetHeaderButtonText, { color: theme.primary, fontWeight: '600' }]}>Done</Text>
                 </Pressable>
               </View>
-              
+
               {/* Playlists List */}
               <ScrollView
                 style={styles.playlistsScrollView}
@@ -1173,7 +1184,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
                       theme,
                       showNotification,
                       onPlaylistAdded: (newPlaylist) => {
-                          // Optional handling
+                        // Optional handling
                       }
                     });
                   }}
@@ -1191,30 +1202,30 @@ export default function LibraryAlbumPage({ route, navigation }) {
                     const isSelected = selectedPlaylists.has(playlist.id);
                     return (
                       <Pressable
-                          key={playlist.id || index}
-                          style={[styles.playlistItem, { borderBottomColor: theme.border }]}
-                          onPress={() => togglePlaylistSelection(playlist.id)}
+                        key={playlist.id || index}
+                        style={[styles.playlistItem, { borderBottomColor: theme.border }]}
+                        onPress={() => togglePlaylistSelection(playlist.id)}
                       >
-                          <Image
+                        <Image
                           source={playlist.image ? { uri: playlist.image } : require('../../assets/adaptive-icon.png')}
                           style={styles.playlistImage}
-                          />
-                          
-                          <View style={styles.playlistInfo}>
+                        />
+
+                        <View style={styles.playlistInfo}>
                           <Text style={[styles.playlistName, { color: theme.primaryText }]} numberOfLines={1}>
-                              {playlist.name}
+                            {playlist.name}
                           </Text>
                           <Text style={[styles.playlistTrackCount, { color: theme.secondaryText }]}>
-                              {playlist.tracks ? playlist.tracks.length : 0} tracks
+                            {playlist.tracks ? playlist.tracks.length : 0} tracks
                           </Text>
-                          </View>
-                          
-                          {/* Selection Indicator */}
-                          {isSelected ? (
-                              <Ionicons name="checkmark-circle" size={24} color={theme.primary} />
-                          ) : (
-                              <View style={[styles.circleOutline, { borderColor: theme.secondaryText }]} />
-                          )}
+                        </View>
+
+                        {/* Selection Indicator */}
+                        {isSelected ? (
+                          <Ionicons name="checkmark-circle" size={24} color={theme.primary} />
+                        ) : (
+                          <View style={[styles.circleOutline, { borderColor: theme.secondaryText }]} />
+                        )}
                       </Pressable>
                     );
                   })

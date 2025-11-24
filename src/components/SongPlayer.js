@@ -176,7 +176,7 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
     durationMillis: 0,
     isPlaying: false,
   });
-  
+
   // Animation for hiding the player (slide down)
   const hideAnim = useRef(new Animated.Value(shouldHide ? 1 : 0)).current;
 
@@ -242,38 +242,56 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
   const slideAnim = useRef(new Animated.Value(0)).current;
   const [queueVisible, setQueueVisible] = useState(false);
   const [isShuffleEnabled, setIsShuffleEnabled] = useState(false);
+  const lyricsAnim = useRef(new Animated.Value(0)).current;
   const [showLyrics, setShowLyrics] = useState(false);
-  const showLyricsRef = useRef(showLyrics);
+  const [isLyricsRendered, setIsLyricsRendered] = useState(false);
 
   useEffect(() => {
-    showLyricsRef.current = showLyrics;
+    if (showLyrics) {
+      setIsLyricsRendered(true);
+      Animated.timing(lyricsAnim, {
+        toValue: 1,
+        duration: 500,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(lyricsAnim, {
+        toValue: 0,
+        duration: 500,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) {
+          setIsLyricsRendered(false);
+        }
+      });
+    }
   }, [showLyrics]);
 
-  const [isImmersive, setIsImmersive] = useState(false);
-  const controlsOpacity = useRef(new Animated.Value(1)).current;
-  const controlsTranslateY = useRef(new Animated.Value(0)).current;
-  const headerTranslateY = useRef(new Animated.Value(0)).current;
-  const lyricsHeaderTranslateY = useRef(new Animated.Value(0)).current;
-  const lyricsHeaderOpacity = useRef(new Animated.Value(1)).current;
-  const lyricsTranslateY = useRef(new Animated.Value(0)).current;
-  const lyricsOpacity = useRef(new Animated.Value(0)).current;
-  const artworkOpacityAnim = useRef(new Animated.Value(1)).current;
-  const immersiveTimeout = useRef(null);
-  const isDismissingRef = useRef(false);
-
   const expandAnim = useRef(new Animated.Value(isVisible ? 1 : 0)).current;
-  
-  const [isMorphing, setIsMorphing] = useState(false);
-  const morphAnim = useRef(new Animated.Value(0)).current;
-  const artworkLayout = useRef({ y: 0, height: 0 });
 
   const isVisibleRef = useRef(isVisible);
   const onCloseRef = useRef(onClose);
+  const queueVisibleRef = useRef(queueVisible);
 
   useEffect(() => {
     isVisibleRef.current = isVisible;
     onCloseRef.current = onClose;
   }, [isVisible, onClose]);
+
+  useEffect(() => {
+    queueVisibleRef.current = queueVisible;
+  }, [queueVisible]);
+
+  useEffect(() => {
+    if (!isVisible) {
+      const timer = setTimeout(() => {
+        setShowLyrics(false);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isVisible]);
 
   useEffect(() => {
     Animated.spring(expandAnim, {
@@ -290,12 +308,15 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
       onMoveShouldSetPanResponder: (evt, gestureState) => {
         if (!isVisibleRef.current) return false;
         if (isScrubbingRef.current) return false;
+        if (queueVisibleRef.current) return false;
         const isDownwardSwipe = gestureState.dy > 10;
         const isVerticalDominant = Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
-        if (showLyricsRef.current) {
-          const touchY = evt.nativeEvent.pageY;
-          return isDownwardSwipe && touchY < 200;
+
+        // If lyrics are showing, only allow swipe down from very top (header)
+        if (showLyrics) {
+          return isDownwardSwipe && evt.nativeEvent.pageY < 100;
         }
+
         return isDownwardSwipe && isVerticalDominant;
       },
       onPanResponderGrant: () => {
@@ -304,21 +325,15 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
       },
       onPanResponderMove: (evt, gestureState) => {
         if (gestureState.dy > 0) {
-          // Dragging down reduces expansion (1 -> 0)
-          // Map dy (pixels) to expansion (0-1)
-          // Max drag is screenHeight
           const change = gestureState.dy / screenHeight;
           expandAnim.setValue(-change);
         }
       },
       onPanResponderRelease: (evt, gestureState) => {
         expandAnim.flattenOffset();
-
-        // If dragged down significantly (e.g. > 15% of screen or fast velocity)
         if (gestureState.dy > screenHeight * 0.15 || gestureState.vy > 0.5) {
           if (onCloseRef.current) onCloseRef.current();
         } else {
-          // Snap back to full
           Animated.spring(expandAnim, {
             toValue: 1,
             friction: 14,
@@ -335,75 +350,6 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
     setIsScrubbing(value);
   };
 
-  const resetImmersiveTimer = useCallback(() => {
-    if (!showLyrics) return;
-
-    setIsImmersive(false);
-    Animated.parallel([
-      Animated.timing(controlsOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-      Animated.timing(controlsTranslateY, { toValue: 0, duration: 300, useNativeDriver: true }),
-      Animated.timing(headerTranslateY, { toValue: 0, duration: 300, useNativeDriver: true }),
-      Animated.timing(lyricsHeaderTranslateY, { toValue: 0, duration: 300, useNativeDriver: true }),
-      Animated.timing(lyricsHeaderOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-      Animated.timing(lyricsTranslateY, { toValue: 0, duration: 300, useNativeDriver: true }),
-    ]).start();
-
-    if (immersiveTimeout.current) clearTimeout(immersiveTimeout.current);
-
-    if (isPlaying) {
-      immersiveTimeout.current = setTimeout(() => {
-        setIsImmersive(true);
-        Animated.parallel([
-          Animated.timing(controlsOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
-          Animated.timing(controlsTranslateY, { toValue: 50, duration: 500, useNativeDriver: true }),
-          Animated.timing(headerTranslateY, { toValue: -100, duration: 500, useNativeDriver: true }),
-          Animated.timing(lyricsHeaderTranslateY, { toValue: -80, duration: 500, useNativeDriver: true }),
-          Animated.timing(lyricsHeaderOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
-          Animated.timing(lyricsTranslateY, { toValue: 50, duration: 500, useNativeDriver: true }),
-        ]).start();
-      }, 10000);
-    }
-  }, [showLyrics, isPlaying]);
-
-  useEffect(() => {
-    if (showLyrics) {
-      Animated.parallel([
-        Animated.timing(lyricsOpacity, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(artworkOpacityAnim, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(controlsOpacity, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(controlsTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(headerTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(lyricsHeaderTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(lyricsHeaderOpacity, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(lyricsTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      ]).start(() => resetImmersiveTimer());
-    } else {
-      // Morph animation setup
-      setIsMorphing(true);
-      morphAnim.setValue(0);
-
-      Animated.parallel([
-        Animated.timing(morphAnim, { toValue: 1, duration: 350, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(lyricsOpacity, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        // Ensure opacity is 1 but wait for morph to handle visual transition
-        Animated.timing(artworkOpacityAnim, { toValue: 1, duration: 10, useNativeDriver: true }),
-        Animated.timing(controlsOpacity, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(controlsTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(headerTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(lyricsHeaderTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(lyricsHeaderOpacity, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(lyricsTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      ]).start(() => {
-        setIsMorphing(false);
-      });
-      if (immersiveTimeout.current) clearTimeout(immersiveTimeout.current);
-      setIsImmersive(false);
-    }
-    return () => {
-      if (immersiveTimeout.current) clearTimeout(immersiveTimeout.current);
-    };
-  }, [showLyrics, resetImmersiveTimer, isPlaying]);
-
   const toggleLyrics = () => {
     LayoutAnimation.configureNext({
       duration: 300,
@@ -415,7 +361,6 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
   };
 
   const toggleShuffle = () => {
-    resetImmersiveTimer();
     const newShuffleState = !isShuffleEnabled;
     setIsShuffleEnabled(newShuffleState);
     if (newShuffleState && queue.length > 1) {
@@ -489,18 +434,18 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
         try {
           // Hack: Append #.mp3 to hint the file type to iOS AVPlayer if it doesn't have an extension
           // This is safe because fragments are not sent to the server, so it won't break the signature
-          const uriWithHint = (Platform.OS === 'ios' && !uri.match(/\.[a-zA-Z0-9]{3,4}$/) && !uri.includes('#')) 
-            ? `${uri}#.mp3` 
+          const uriWithHint = (Platform.OS === 'ios' && !uri.match(/\.[a-zA-Z0-9]{3,4}$/) && !uri.includes('#'))
+            ? `${uri}#.mp3`
             : uri;
 
           const isLocal = uri.startsWith('file://');
-          
+
           // For local files, try decoding the URI to handle spaces correctly
           // expo-av on iOS sometimes struggles with encoded file:// URIs
           const finalUri = isLocal ? decodeURIComponent(uriWithHint) : uriWithHint;
-          
+
           if (isLocal) {
-              console.log('[SongPlayer] Loading local file:', finalUri);
+            console.log('[SongPlayer] Loading local file:', finalUri);
           }
 
           const source = { uri: finalUri };
@@ -721,29 +666,9 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
     outputRange: [40, 40, 0]
   });
 
-  // Morph calculations
-  const sourceX = 20; // lyricsHeader padding
-  const sourceY = insets.top + 60 + 5; // header height + padding
-  const targetX = (screenWidth - 350) / 2;
-  const targetY = insets.top + (artworkLayout.current.height > 0 ? artworkLayout.current.y + (artworkLayout.current.height - 350)/2 : (screenHeight - 350)/2 - 100);
 
-  const morphTranslateX = morphAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [(sourceX + 25) - 175, (targetX + 175) - 175] // Center to Center
-  });
 
-  const morphTranslateY = morphAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [
-      (sourceY + 25) - 175 - (insets.top + artworkLayout.current.y), 
-      (artworkLayout.current.height - 350) / 2
-    ]
-  });
 
-  const morphScale = morphAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [50/350, 1]
-  });
 
   const miniOpacity = expandAnim.interpolate({
     inputRange: [0, 0.2],
@@ -763,6 +688,16 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
   const hideOpacity = hideAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [1, 0]
+  });
+
+  const mainContentTranslateY = lyricsAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -screenHeight],
+  });
+
+  const lyricsTranslateY = lyricsAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [screenHeight, 0],
   });
 
   return (
@@ -807,193 +742,144 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
           colors={[colors.primary, colors.secondary]}
           style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
         >
-          <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }], opacity: controlsOpacity }]}>
+          {/* Header - Fixed */}
+          <View style={styles.header}>
             <Pressable onPress={onClose} style={styles.iconButton} hitSlop={16}>
               <Ionicons name="chevron-down" size={28} color="#fff" />
             </Pressable>
             <Text style={styles.headerTitle}>NOW PLAYING</Text>
             <View style={{ width: 28 }} />
-          </Animated.View>
+          </View>
 
-          {/* Lyrics Header (Mini Player Info) */}
-          <Animated.View style={[
-            styles.lyricsHeader,
-            { transform: [{ translateY: lyricsHeaderTranslateY }], opacity: lyricsHeaderOpacity },
-            !showLyrics && { height: 0, opacity: 0, overflow: 'hidden', marginBottom: 0 }
-          ]}>
-            {imageUrl ? (
-              <Image source={{ uri: imageUrl }} style={styles.lyricsHeaderArtwork} />
-            ) : (
-              <View style={[styles.lyricsHeaderArtwork, { backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' }]}>
-                <Ionicons name="musical-note" size={24} color="rgba(255,255,255,0.3)" />
-              </View>
-            )}
-            <View style={styles.lyricsHeaderInfo}>
-              <Text style={styles.lyricsHeaderTitle} numberOfLines={1}>{track.name}</Text>
-              <Text style={styles.lyricsHeaderArtist} numberOfLines={1}>{track.artist?.name ?? track.artist}</Text>
-            </View>
-          </Animated.View>
-
-          <Animated.View style={[
-            styles.lyricsContainer,
-            isImmersive && styles.lyricsContainerImmersive,
-            { opacity: lyricsOpacity, transform: [{ translateY: lyricsTranslateY }] },
-            !showLyrics && { height: 0, flex: 0, overflow: 'hidden', opacity: 0 }
-          ]}>
-            <LyricsView
-              track={track}
-              currentTime={positionSec}
-              duration={durationSec}
-              onSeek={onSeekComplete}
-              onInteraction={resetImmersiveTimer}
-            />
-          </Animated.View>
-
-          <Animated.View
-            style={[
-              styles.artworkContainerOuter,
-              showLyrics && { height: 0, overflow: 'hidden' }
-            ]}
-            onLayout={(e) => {
-              if (e.nativeEvent.layout.height > 10) {
-                artworkLayout.current = e.nativeEvent.layout;
-              }
-            }}
-          >
-            {/* Morphing Artwork Overlay */}
-            {isMorphing && (
-              <Animated.View
-                style={{
-                  position: 'absolute',
-                  width: 350,
-                  height: 350,
-                  zIndex: 100,
-                  top: 0,
-                  left: 0,
+          {/* Main Content - Slides Up */}
+          <Animated.View style={[styles.mainContentContainer, { transform: [{ translateY: mainContentTranslateY }] }]}>
+            <View style={styles.artworkContainerOuter}>
+              <Animated.View style={[
+                styles.artworkContainer,
+                {
                   transform: [
-                    { translateX: morphTranslateX },
-                    { translateY: morphTranslateY },
-                    { scale: morphScale }
-                  ]
-                }}
-              >
+                    { perspective: 1200 },
+                    { translateX: slideAnim.interpolate({ inputRange: [-1, 0, 1], outputRange: [-350, 0, 350] }) },
+                    { rotateY: slideAnim.interpolate({ inputRange: [-1, -0.5, 0, 0.5, 1], outputRange: ['60deg', '25deg', '0deg', '-25deg', '-60deg'] }) },
+                    { scale: slideAnim.interpolate({ inputRange: [-1, -0.5, 0, 0.5, 1], outputRange: [0.7, 0.88, 1, 0.88, 0.7] }) },
+                  ],
+                  opacity: slideAnim.interpolate({ inputRange: [-1, -0.4, 0, 0.4, 1], outputRange: [0, 0.6, 1, 0.6, 0] }),
+                },
+              ]}>
                 {imageUrl ? (
-                  <Image source={{ uri: imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
+                  <Image source={{ uri: imageUrl }} style={styles.artwork} />
                 ) : (
-                  <View style={{ width: '100%', height: '100%', borderRadius: 12, backgroundColor: '#333' }} />
+                  <View style={[styles.artwork, { backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' }]}>
+                    <Ionicons name="musical-note" size={80} color="rgba(255,255,255,0.3)" />
+                  </View>
                 )}
               </Animated.View>
-            )}
+            </View>
 
-            <Animated.View style={[
-              styles.artworkContainer,
-              {
-                transform: [
-                  { perspective: 1200 },
-                  { translateX: slideAnim.interpolate({ inputRange: [-1, 0, 1], outputRange: [-350, 0, 350] }) },
-                  { rotateY: slideAnim.interpolate({ inputRange: [-1, -0.5, 0, 0.5, 1], outputRange: ['60deg', '25deg', '0deg', '-25deg', '-60deg'] }) },
-                  { scale: slideAnim.interpolate({ inputRange: [-1, -0.5, 0, 0.5, 1], outputRange: [0.7, 0.88, 1, 0.88, 0.7] }) },
-                ],
-                opacity: isMorphing ? 0 : Animated.multiply(
-                  slideAnim.interpolate({ inputRange: [-1, -0.4, 0, 0.4, 1], outputRange: [0, 0.6, 1, 0.6, 0] }),
-                  artworkOpacityAnim
-                ),
-              },
-            ]}>
-              {imageUrl ? (
-                <Image source={{ uri: imageUrl }} style={styles.artwork} />
-              ) : (
-                <View style={[styles.artwork, { backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' }]}>
-                  <Ionicons name="musical-note" size={80} color="rgba(255,255,255,0.3)" />
-                </View>
-              )}
+            <Animated.View
+              style={[
+                styles.trackInfo,
+                {
+                  transform: [{ translateX: slideAnim.interpolate({ inputRange: [-1, 0, 1], outputRange: [-100, 0, 100] }) }],
+                  opacity: slideAnim.interpolate({ inputRange: [-1, -0.3, 0, 0.3, 1], outputRange: [0, 0.4, 1, 0.4, 0] }),
+                },
+              ]}
+            >
+              <View style={{ flex: 1, marginRight: 16 }}>
+                <Text style={styles.title} numberOfLines={1}>{track.name}</Text>
+                <Pressable onPress={() => onArtistPress && onArtistPress(track.artist?.name ?? track.artist)}>
+                  <Text style={styles.artist} numberOfLines={1}>{track.artist?.name ?? track.artist}</Text>
+                </Pressable>
+              </View>
+              <Pressable
+                onPress={() => toggleFavorite && toggleFavorite(track)}
+                hitSlop={16}
+                style={{ padding: 4 }}
+              >
+                <Ionicons
+                  name={isFavorite ? "star" : "star-outline"}
+                  size={24}
+                  color={isFavorite ? "#FFFFFF" : "rgba(255, 255, 255, 0.6)"}
+                />
+              </Pressable>
             </Animated.View>
-          </Animated.View>
 
-          <Animated.View
-            style={[
-              styles.trackInfo,
-              {
-                transform: [{ translateX: slideAnim.interpolate({ inputRange: [-1, 0, 1], outputRange: [-100, 0, 100] }) }, { translateY: controlsTranslateY }],
-                opacity: Animated.multiply(
-                  slideAnim.interpolate({ inputRange: [-1, -0.3, 0, 0.3, 1], outputRange: [0, 0.4, 1, 0.4, 0] }),
-                  controlsOpacity
-                ),
-              },
-              showLyrics && { height: 0, opacity: 0, overflow: 'hidden', marginTop: 0, marginBottom: 0 }
-            ]}
-          >
-            <View style={{ flex: 1, marginRight: 16 }}>
-              <Text style={styles.title} numberOfLines={1}>{track.name}</Text>
-              <Pressable onPress={() => onArtistPress && onArtistPress(track.artist?.name ?? track.artist)}>
-                <Text style={styles.artist} numberOfLines={1}>{track.artist?.name ?? track.artist}</Text>
+            <View style={styles.progressContainer}>
+              <CustomSlider
+                value={positionSec}
+                maximumValue={durationSec || 1}
+                onSlidingStart={onSeekStart}
+                onValueChange={onSeekUpdate}
+                onSlidingComplete={onSeekComplete}
+                isLoading={isLoading}
+              />
+              <View style={styles.timeRow}>
+                <Text style={styles.timeText}>{formatTime(positionSec)}</Text>
+                <Text style={styles.timeText}>{formatTime(durationSec)}</Text>
+              </View>
+            </View>
+
+            <View style={styles.controls}>
+              <Pressable style={styles.controlButton} onPress={toggleShuffle}>
+                <Ionicons name="shuffle" size={24} color={isShuffleEnabled ? "#fff" : "rgba(255,255,255,0.6)"} />
+                {isShuffleEnabled && <View style={styles.activeIndicatorDot} />}
+              </Pressable>
+              <Pressable style={styles.controlButton} onPress={skipPrevious} disabled={!canSkipPrevious}>
+                <Ionicons name="play-skip-back" size={32} color={canSkipPrevious ? "#fff" : "rgba(255,255,255,0.3)"} />
+              </Pressable>
+              <Pressable style={[styles.controlButton, styles.playPauseButton]} onPress={togglePlay}>
+                {isLoading ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <Ionicons name={isPlaying ? "pause" : "play"} size={40} color="#000" style={{ marginLeft: isPlaying ? 0 : 4 }} />
+                )}
+              </Pressable>
+              <Pressable style={styles.controlButton} onPress={skipNext} disabled={!canSkipNext}>
+                <Ionicons name="play-skip-forward" size={32} color={canSkipNext ? "#fff" : "rgba(255,255,255,0.3)"} />
+              </Pressable>
+              <Pressable style={styles.controlButton} onPress={() => {
+                const modes = [0, 1, 2];
+                const nextMode = modes[(repeatMode + 1) % modes.length];
+                setRepeatMode(nextMode);
+              }}>
+                <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="repeat" size={24} color={repeatMode !== 0 ? "#fff" : "rgba(255,255,255,0.6)"} />
+                  {repeatMode === 2 && <View style={[styles.activeIndicatorDot, { position: 'absolute', bottom: -8 }]} />}
+                </View>
               </Pressable>
             </View>
-            <Pressable
-              onPress={() => toggleFavorite && toggleFavorite(track)}
-              hitSlop={16}
-              style={{ padding: 4 }}
-            >
-              <Ionicons
-                name={isFavorite ? "star" : "star-outline"}
-                size={24}
-                color={isFavorite ? "#FFFFFF" : "rgba(255, 255, 255, 0.6)"}
-              />
-            </Pressable>
-          </Animated.View>
 
-          <Animated.View style={[styles.progressContainer, { opacity: controlsOpacity, transform: [{ translateY: controlsTranslateY }] }]}>
-            <CustomSlider
-              value={positionSec}
-              maximumValue={durationSec || 1}
-              onSlidingStart={onSeekStart}
-              onValueChange={onSeekUpdate}
-              onSlidingComplete={onSeekComplete}
-              isLoading={isLoading}
-            />
-            <View style={styles.timeRow}>
-              <Text style={styles.timeText}>{formatTime(positionSec)}</Text>
-              <Text style={styles.timeText}>{formatTime(durationSec)}</Text>
+            <View style={styles.bottomControls}>
+              <Pressable hitSlop={16} onPress={toggleLyrics} style={styles.bottomControlButton}>
+                <Ionicons name="chatbox-ellipses" size={24} color={showLyrics ? "#fff" : "rgba(255,255,255,0.7)"} />
+              </Pressable>
+              <Pressable onPress={() => setQueueVisible(true)} style={styles.bottomControlButton}>
+                <Ionicons name="list" size={24} color="#fff" />
+              </Pressable>
             </View>
           </Animated.View>
 
-          <Animated.View style={[styles.controls, { opacity: controlsOpacity, transform: [{ translateY: controlsTranslateY }] }]}>
-            <Pressable style={styles.controlButton} onPress={toggleShuffle}>
-              <Ionicons name="shuffle" size={24} color={isShuffleEnabled ? "#fff" : "rgba(255,255,255,0.6)"} />
-              {isShuffleEnabled && <View style={styles.activeIndicatorDot} />}
-            </Pressable>
-            <Pressable style={styles.controlButton} onPress={skipPrevious} disabled={!canSkipPrevious}>
-              <Ionicons name="play-skip-back" size={32} color={canSkipPrevious ? "#fff" : "rgba(255,255,255,0.3)"} />
-            </Pressable>
-            <Pressable style={[styles.controlButton, styles.playPauseButton]} onPress={togglePlay}>
-              {isLoading ? (
-                <ActivityIndicator color="#000" />
-              ) : (
-                <Ionicons name={isPlaying ? "pause" : "play"} size={40} color="#000" style={{ marginLeft: isPlaying ? 0 : 4 }} />
-              )}
-            </Pressable>
-            <Pressable style={styles.controlButton} onPress={skipNext} disabled={!canSkipNext}>
-              <Ionicons name="play-skip-forward" size={32} color={canSkipNext ? "#fff" : "rgba(255,255,255,0.3)"} />
-            </Pressable>
-            <Pressable style={styles.controlButton} onPress={() => {
-              const modes = [0, 1, 2];
-              const nextMode = modes[(repeatMode + 1) % modes.length];
-              setRepeatMode(nextMode);
-            }}>
-              <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="repeat" size={24} color={repeatMode !== 0 ? "#fff" : "rgba(255,255,255,0.6)"} />
-                {repeatMode === 2 && <View style={[styles.activeIndicatorDot, { position: 'absolute', bottom: -8 }]} />}
-              </View>
-            </Pressable>
-          </Animated.View>
-
-          <Animated.View style={[styles.bottomControls, { opacity: controlsOpacity, transform: [{ translateY: controlsTranslateY }] }]}>
-            <Pressable hitSlop={16} onPress={toggleLyrics} style={styles.bottomControlButton}>
-              <Ionicons name="chatbox-ellipses" size={24} color={showLyrics ? "#fff" : "rgba(255,255,255,0.7)"} />
-            </Pressable>
-            <Pressable onPress={() => setQueueVisible(true)} style={styles.bottomControlButton}>
-              <Ionicons name="list" size={24} color="#fff" />
-            </Pressable>
+          {/* Lyrics Content - Slides In */}
+          <Animated.View style={[styles.lyricsPageContainer, { top: insets.top + 60, transform: [{ translateY: lyricsTranslateY }] }]}>
+            {isLyricsRendered && (
+              <>
+                <LyricsView
+                  track={track}
+                  currentTime={positionSec}
+                  duration={durationSec}
+                  onSeek={onSeekComplete}
+                  backgroundColor={colors.secondary}
+                />
+                <View style={styles.lyricsBottomControls}>
+                  <Pressable hitSlop={16} onPress={toggleLyrics} style={styles.bottomControlButton}>
+                    <Ionicons name="chatbox-ellipses" size={24} color="#fff" />
+                  </Pressable>
+                  <Pressable onPress={() => setQueueVisible(true)} style={styles.bottomControlButton}>
+                    <Ionicons name="list" size={24} color="#fff" />
+                  </Pressable>
+                </View>
+              </>
+            )}
           </Animated.View>
 
           <QueueSheet
@@ -1003,6 +889,7 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
             currentIndex={queueIndex}
             onTrackSelect={onTrackChange}
             onReorder={onQueueReorder}
+            onDelete={onQueueReorder}
           />
         </LinearGradient>
       </Animated.View>
@@ -1147,42 +1034,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     overflow: 'hidden',
   },
-  lyricsContainerImmersive: {
+  mainContentContainer: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  lyricsPageContainer: {
     position: 'absolute',
-    top: 100,
+    top: 60, // Header height
     bottom: 0,
     left: 0,
     right: 0,
     zIndex: 20,
-    backgroundColor: 'transparent',
   },
-  lyricsHeader: {
+  lyricsBottomControls: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    marginBottom: 0,
+    justifyContent: 'space-between',
     width: '100%',
-    height: 60, // Fixed height for animation
-  },
-  lyricsHeaderArtwork: {
-    width: 50,
-    height: 50,
-    borderRadius: 8,
-    marginRight: 12,
-  },
-  lyricsHeaderInfo: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  lyricsHeaderTitle: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 2,
-  },
-  lyricsHeaderArtist: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 14,
+    paddingHorizontal: 40,
+    marginBottom: 40,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
   },
   rootContainer: {
     position: 'absolute',

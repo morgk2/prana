@@ -1,0 +1,94 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - release
+  pull_request:
+    branches:
+      - main
+      - master
+      - release
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Expo CLI
+        run: npm install -g @expo/cli
+
+      - name: Generate Android project
+        run: npx expo prebuild --platform android --clean
+
+      - name: Get app info from app.json
+        id: app-info
+        run: |
+          SLUG=$(node -p "require('./app.json').expo.slug" | tr -d '"')
+          APP_NAME=$(node -p "require('./app.json').expo.name" | tr -d '"')
+          echo "app_slug=$SLUG" >> $GITHUB_OUTPUT
+          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
+
+      - name: Build APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Find APK
+        id: find-apk
+        working-directory: android
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "Error: APK not found!"
+            echo "Searching in app/build/outputs/apk:"
+            find app/build/outputs/apk -name "*.apk" || true
+            echo ""
+            echo "Listing app/build/outputs:"
+            ls -la app/build/outputs/ || true
+            exit 1
+          fi
+          
+          APK_NAME=$(basename "$APK_PATH")
+          # Store the full path relative to repository root
+          echo "apk_path=android/$APK_PATH" >> $GITHUB_OUTPUT
+          echo "apk_name=$APK_NAME" >> $GITHUB_OUTPUT
+          echo "Found APK: $APK_NAME at android/$APK_PATH"
+          ls -lh "$APK_PATH"
+
+      - name: Copy APK to build directory
+        run: |
+          mkdir -p build
+          cp "${{ steps.find-apk.outputs.apk_path }}" "build/${{ steps.find-apk.outputs.apk_name }}"
+          echo "APK copied to build/${{ steps.find-apk.outputs.apk_name }}"
+          ls -lh "build/${{ steps.find-apk.outputs.apk_name }}"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-Build-APK
+          path: build/${{ steps.find-apk.outputs.apk_name }}
+          retention-days: 30

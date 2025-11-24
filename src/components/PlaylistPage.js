@@ -25,10 +25,28 @@ function pickImageUrl(images, preferredSize = 'large') {
 }
 
 export default function PlaylistPage({ route, navigation }) {
-    const { playlist: initialPlaylist, theme, onTrackPress, isPlaying, currentTrack, togglePlay, addToQueue, deletePlaylist, updatePlaylist, showNotification, library, useTidalForUnowned } = route.params;
+    const { playlist: initialPlaylist, theme = {}, onTrackPress, isPlaying, currentTrack, togglePlay, addToQueue, addAlbumToQueue, deletePlaylist, updatePlaylist, showNotification, library, useTidalForUnowned } = route.params;
 
     const { playlists } = route.params;
-    const playlist = playlists?.find(p => p.id === initialPlaylist.id) || initialPlaylist;
+
+    const playlist = React.useMemo(() => {
+        const playlistFromList = playlists?.find(p => p.id === initialPlaylist.id);
+        if (!playlistFromList) return initialPlaylist;
+
+        // If timestamps are available, use the most recent one
+        if (initialPlaylist.updatedAt && playlistFromList.updatedAt) {
+            return new Date(playlistFromList.updatedAt) > new Date(initialPlaylist.updatedAt)
+                ? playlistFromList
+                : initialPlaylist;
+        }
+
+        // If one has a timestamp and the other doesn't, prefer the one with timestamp
+        if (initialPlaylist.updatedAt) return initialPlaylist;
+        if (playlistFromList.updatedAt) return playlistFromList;
+
+        // Default to the one from the list if no timestamps (preserves existing behavior)
+        return playlistFromList;
+    }, [initialPlaylist, playlists]);
 
     const { startAlbumDownload, albumDownloads, downloadedTracks } = useDownload();
 
@@ -74,7 +92,7 @@ export default function PlaylistPage({ route, navigation }) {
     const handleDownloadPlaylist = async () => {
         if (!useTidalForUnowned) return;
         closePlaylistMenu();
-        
+
         const tracksToDownload = playlist.tracks.filter(t => {
             // Check if we have a local file URI
             return !t.uri || !t.uri.startsWith('file://');
@@ -91,7 +109,7 @@ export default function PlaylistPage({ route, navigation }) {
     const renderProgressCircle = () => {
         const progressData = albumDownloads[playlist.id];
         const progress = progressData ? progressData.progress : 0;
-        
+
         const size = 24;
         const strokeWidth = 3;
         const center = size / 2;
@@ -100,30 +118,30 @@ export default function PlaylistPage({ route, navigation }) {
         const strokeDashoffset = circumference - (progress * circumference);
 
         return (
-          <View style={{ width: size + 16, height: size + 16, justifyContent: 'center', alignItems: 'center' }}>
-            <Svg width={size} height={size}>
-              <Circle
-                stroke={theme.secondaryText}
-                cx={center}
-                cy={center}
-                r={radius}
-                strokeWidth={strokeWidth}
-                opacity={0.3}
-              />
-              <Circle
-                stroke={theme.primaryText}
-                cx={center}
-                cy={center}
-                r={radius}
-                strokeWidth={strokeWidth}
-                strokeDasharray={circumference}
-                strokeDashoffset={strokeDashoffset}
-                strokeLinecap="round"
-                rotation="-90"
-                origin={`${center}, ${center}`}
-              />
-            </Svg>
-          </View>
+            <View style={{ width: size + 16, height: size + 16, justifyContent: 'center', alignItems: 'center' }}>
+                <Svg width={size} height={size}>
+                    <Circle
+                        stroke={theme.secondaryText}
+                        cx={center}
+                        cy={center}
+                        r={radius}
+                        strokeWidth={strokeWidth}
+                        opacity={0.3}
+                    />
+                    <Circle
+                        stroke={theme.primaryText}
+                        cx={center}
+                        cy={center}
+                        r={radius}
+                        strokeWidth={strokeWidth}
+                        strokeDasharray={circumference}
+                        strokeDashoffset={strokeDashoffset}
+                        strokeLinecap="round"
+                        rotation="-90"
+                        origin={`${center}, ${center}`}
+                    />
+                </Svg>
+            </View>
         );
     };
 
@@ -313,8 +331,8 @@ export default function PlaylistPage({ route, navigation }) {
                             trackScaleAnims.current[trackKey] = new Animated.Value(1);
                         }
 
-                        const libraryTrack = library?.find(t => 
-                            (t.uri && track.uri && t.uri === track.uri) || 
+                        const libraryTrack = library?.find(t =>
+                            (t.uri && track.uri && t.uri === track.uri) ||
                             (t.name === track.name && (t.artist?.name || t.artist) === (track.artist?.name || track.artist))
                         );
                         const isDownloaded = downloadedTracks.has(track.id) || downloadedTracks.has(track.name) || (track.uri && downloadedTracks.has(track.uri));
@@ -340,17 +358,23 @@ export default function PlaylistPage({ route, navigation }) {
                                 >
                                     <Pressable
                                         onPress={() => {
-                                            if (isImported && onTrackPress) {
-                                                onTrackPress(track, playlist.tracks, index);
+                                            if (isImported) {
+                                                if (addAlbumToQueue) {
+                                                    const remainingTracks = playlist.tracks.filter((_, idx) => idx !== index);
+                                                    const tracksToAdd = [track, ...remainingTracks];
+                                                    addAlbumToQueue(tracksToAdd, true);
+                                                } else if (onTrackPress) {
+                                                    onTrackPress(track, playlist.tracks, index);
+                                                }
                                             }
                                         }}
                                         onLongPress={() => isImported && openContextMenu(track, trackKey)}
                                         style={[
-                                            styles.trackRow, 
-                                            { 
-                                                borderBottomColor: theme.border, 
+                                            styles.trackRow,
+                                            {
+                                                borderBottomColor: theme.border,
                                                 backgroundColor: theme.background,
-                                                opacity: isImported ? 1 : 0.5 
+                                                opacity: isImported ? 1 : 0.5
                                             }
                                         ]}
                                     >
@@ -400,14 +424,14 @@ export default function PlaylistPage({ route, navigation }) {
                 {albumDownloads[playlist.id]?.isDownloading ? (
                     renderProgressCircle()
                 ) : (
-                <Pressable
-                    ref={playlistMenuButtonRef}
-                    onPress={openPlaylistMenu}
-                    style={{ padding: 8 }}
-                    hitSlop={16}
-                >
-                    <Ionicons name="ellipsis-horizontal" size={24} color={theme.primaryText} />
-                </Pressable>
+                    <Pressable
+                        ref={playlistMenuButtonRef}
+                        onPress={openPlaylistMenu}
+                        style={{ padding: 8 }}
+                        hitSlop={16}
+                    >
+                        <Ionicons name="ellipsis-horizontal" size={24} color={theme.primaryText} />
+                    </Pressable>
                 )}
             </View>
 
@@ -539,7 +563,7 @@ const styles = StyleSheet.create({
     },
     scrollViewContent: {
         paddingHorizontal: 16,
-        paddingBottom: 120,
+        paddingBottom: 180,
     },
     artworkContainer: {
         alignItems: 'center',

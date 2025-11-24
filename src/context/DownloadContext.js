@@ -1,9 +1,17 @@
-import React, { createContext, useState, useContext, useRef } from 'react';
+import React, { createContext, useState, useContext, useRef, useEffect } from 'react';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
+import { Audio } from 'expo-av';
+import * as Notifications from 'expo-notifications';
 import { getPlayableTrack, getFreshTidalStream } from '../utils/tidalStreamHelper';
 
 const DownloadContext = createContext();
+
+const LIBRARY_DIR = FileSystem.documentDirectory + 'library';
+const DOWNLOADS_FILE = LIBRARY_DIR + '/downloads.json';
+const SILENT_AUDIO_URI = FileSystem.cacheDirectory + 'background_keep_alive.wav';
+// A short silent WAV file (16-bit PCM, Mono, 44.1kHz, approx 0.1s) to keep the audio session active
+const SILENT_AUDIO_B64 = 'UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
 export const useDownload = () => useContext(DownloadContext);
 
@@ -12,6 +20,123 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
   const [albumDownloads, setAlbumDownloads] = useState({}); // { [albumKey]: { progress, total, completed } }
   const [downloadedTracks, setDownloadedTracks] = useState(new Set()); // Set of URIs or IDs
   const [recentDownloads, setRecentDownloads] = useState({}); // { [trackId]: fileUri } - Map for immediate playback
+  const [isLoaded, setIsLoaded] = useState(false);
+  const keepAliveSound = useRef(null);
+
+  // Manage background keep-alive sound
+  const hasActiveDownloads = Object.keys(activeDownloads).length > 0 || Object.values(albumDownloads).some(a => a.isDownloading);
+
+  useEffect(() => {
+    // Request notification permissions
+    Notifications.requestPermissionsAsync();
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const manageKeepAlive = async () => {
+      if (hasActiveDownloads) {
+        if (!keepAliveSound.current) {
+          console.log('[DownloadContext] Starting background keep-alive');
+          try {
+            // Ensure silent file exists
+            const info = await FileSystem.getInfoAsync(SILENT_AUDIO_URI);
+            if (!info.exists) {
+              await FileSystem.writeAsStringAsync(SILENT_AUDIO_URI, SILENT_AUDIO_B64, { encoding: FileSystem.EncodingType.Base64 });
+            }
+
+            // Play silent sound in loop to keep app active in background
+            const { sound } = await Audio.Sound.createAsync(
+              { uri: SILENT_AUDIO_URI },
+              { shouldPlay: true, isLooping: true, volume: 0 }
+            );
+            
+            if (mounted) {
+              keepAliveSound.current = sound;
+            } else {
+              await sound.unloadAsync();
+            }
+          } catch (e) {
+            console.warn('[DownloadContext] Failed to start keep-alive sound', e);
+          }
+        }
+      } else {
+        if (keepAliveSound.current) {
+          console.log('[DownloadContext] Stopping background keep-alive');
+          try {
+            await keepAliveSound.current.stopAsync();
+            await keepAliveSound.current.unloadAsync();
+          } catch (e) {
+            // ignore
+          }
+          keepAliveSound.current = null;
+        }
+      }
+    };
+
+    manageKeepAlive();
+
+    return () => {
+      mounted = false;
+      // We don't necessarily want to kill the sound on every render if hasActiveDownloads is still true,
+      // but since we check hasActiveDownloads in the dependency, this effect runs when it flips.
+      // However, if the component unmounts (app kill), we should cleanup.
+    };
+  }, [hasActiveDownloads]);
+
+  // Load downloads persistence on mount
+  useEffect(() => {
+    const loadDownloads = async () => {
+      try {
+        const dirInfo = await FileSystem.getInfoAsync(LIBRARY_DIR);
+        if (!dirInfo.exists) {
+          await FileSystem.makeDirectoryAsync(LIBRARY_DIR, { intermediates: true });
+        }
+
+        const fileInfo = await FileSystem.getInfoAsync(DOWNLOADS_FILE);
+        if (fileInfo.exists) {
+          const content = await FileSystem.readAsStringAsync(DOWNLOADS_FILE);
+          const data = JSON.parse(content);
+          if (data) {
+            if (data.downloadedTracks) {
+              setDownloadedTracks(prev => {
+                const next = new Set(data.downloadedTracks);
+                for (const item of prev) next.add(item);
+                return next;
+              });
+            }
+            if (data.recentDownloads) {
+              setRecentDownloads(prev => ({ ...data.recentDownloads, ...prev }));
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[DownloadContext] Failed to load downloads persistence', e);
+      } finally {
+        setIsLoaded(true);
+      }
+    };
+    loadDownloads();
+  }, []);
+
+  // Save downloads persistence on change
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    const saveDownloads = async () => {
+      try {
+        const data = {
+          downloadedTracks: Array.from(downloadedTracks),
+          recentDownloads
+        };
+        await FileSystem.writeAsStringAsync(DOWNLOADS_FILE, JSON.stringify(data));
+      } catch (e) {
+        console.warn('[DownloadContext] Failed to save downloads persistence', e);
+      }
+    };
+    
+    saveDownloads();
+  }, [downloadedTracks, recentDownloads, isLoaded]);
 
   const handleDownloadTrack = async (track, albumKey = null) => {
     if (!useTidalForUnowned) return;
@@ -122,11 +247,15 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
 
       // Update Album Progress if part of an album download
       if (albumKey) {
+          let progressInfo = null;
+
           setAlbumDownloads(prev => {
               const current = prev[albumKey];
               if (!current) return prev;
               const newCompleted = current.completed + 1;
               const newProgress = newCompleted / current.total;
+
+              progressInfo = { completed: newCompleted, total: current.total };
               
               if (newCompleted >= current.total) {
                   // Album finished
@@ -143,6 +272,32 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
                   }
               };
           });
+
+          // Fire notification
+          if (progressInfo) {
+            if (progressInfo.completed < progressInfo.total) {
+              Notifications.scheduleNotificationAsync({
+                identifier: `download-${albumKey}`,
+                content: {
+                  title: 'Downloading Music',
+                  body: `Downloaded ${progressInfo.completed} of ${progressInfo.total} Tracks`,
+                  sound: false,
+                  priority: Notifications.AndroidNotificationPriority.LOW,
+                },
+                trigger: null,
+              });
+            } else {
+              // Done
+              Notifications.scheduleNotificationAsync({
+                identifier: `download-${albumKey}`,
+                content: {
+                  title: 'Download Complete',
+                  body: `Finished downloading ${progressInfo.total} tracks.`,
+                },
+                trigger: null,
+              });
+            }
+          }
       }
 
     } catch (error) {

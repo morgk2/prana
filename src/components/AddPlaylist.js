@@ -203,13 +203,20 @@ export default function AddPlaylist({ route, navigation }) {
             if (showNotification) {
                 showNotification(`Playlist "${name}" updated`);
             }
+            navigation.navigate({
+                name: 'PlaylistPage',
+                params: { playlist: playlistData, theme },
+                merge: true,
+            });
         } else if (addPlaylist) {
             addPlaylist(playlistData);
             if (showNotification) {
                 showNotification(`Playlist "${name}" created`);
             }
+            navigation.goBack();
+        } else {
+            navigation.goBack();
         }
-        navigation.goBack();
     };
 
     const renderSelectedTrackItem = (track, index) => {
@@ -331,6 +338,7 @@ export default function AddPlaylist({ route, navigation }) {
 
             <ScrollView
                 style={styles.content}
+                contentContainerStyle={styles.scrollContent}
                 scrollEnabled={draggedIndex === null}
             >
                 <View style={styles.imageContainer}>
@@ -430,6 +438,9 @@ const styles = StyleSheet.create({
     content: {
         flex: 1,
     },
+    scrollContent: {
+        paddingBottom: 180,
+    },
     imageContainer: {
         alignItems: 'center',
         marginVertical: 24,
@@ -472,7 +483,7 @@ const styles = StyleSheet.create({
     selectedTracksContainer: {
         marginTop: 24,
         paddingHorizontal: 16,
-        paddingBottom: 40,
+        paddingBottom: 180,
     },
     sectionTitle: {
         fontSize: 14,
@@ -529,7 +540,7 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
     },
     sheetList: {
-        paddingBottom: 40,
+        paddingBottom: 180,
     },
     trackItem: {
         flexDirection: 'row',

@@ -247,7 +247,7 @@ export async function getArtistTopTracks(artist, { limit = 50 } = {}) {
   return items.slice(0, limit).map(mapSpotifyTrackToLastfm).filter(Boolean);
 }
 
-// Get top albums for an artist name (best Spotify match)
+// Get top albums for an artist name (best Spotify match) - ALBUMS ONLY
 export async function getArtistTopAlbums(artist, { limit = 50 } = {}) {
   const [token, spotifyArtist] = await Promise.all([
     getSpotifyToken(),
@@ -257,7 +257,7 @@ export async function getArtistTopAlbums(artist, { limit = 50 } = {}) {
   if (!spotifyArtist) return [];
 
   const url = new URL(`${SPOTIFY_ARTISTS_URL}/${spotifyArtist.id}/albums`);
-  url.searchParams.set('include_groups', 'album,single');
+  url.searchParams.set('include_groups', 'album'); // Only albums, not singles
   url.searchParams.set('market', 'US');
   url.searchParams.set('limit', String(limit));
 
@@ -270,6 +270,36 @@ export async function getArtistTopAlbums(artist, { limit = 50 } = {}) {
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Spotify artist-albums error ${res.status}: ${text}`);
+  }
+
+  const json = await res.json();
+  const items = json.items ?? [];
+  return items.map(mapSpotifyAlbumToLastfm).filter(Boolean);
+}
+
+// Get singles for an artist name (best Spotify match) - SINGLES ONLY
+export async function getArtistSingles(artist, { limit = 50 } = {}) {
+  const [token, spotifyArtist] = await Promise.all([
+    getSpotifyToken(),
+    findSpotifyArtistByName(artist),
+  ]);
+
+  if (!spotifyArtist) return [];
+
+  const url = new URL(`${SPOTIFY_ARTISTS_URL}/${spotifyArtist.id}/albums`);
+  url.searchParams.set('include_groups', 'single'); // Only singles
+  url.searchParams.set('market', 'US');
+  url.searchParams.set('limit', String(limit));
+
+  const res = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Spotify artist-singles error ${res.status}: ${text}`);
   }
 
   const json = await res.json();
