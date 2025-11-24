@@ -11,6 +11,7 @@ import {
   PanResponder,
   TouchableOpacity,
   FlatList,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -37,6 +38,7 @@ export default function HomeScreen({ route }) {
     onTrackPress,
     pickLocalAudio,
     openArtistPage,
+    isLibraryLoaded,
   } = route.params;
 
   const [currentIndex, setCurrentIndex] = useState(libraryAlbums.length > 0 ? Math.floor(libraryAlbums.length / 2) : 0);
