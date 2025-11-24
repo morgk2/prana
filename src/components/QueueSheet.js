@@ -25,7 +25,7 @@ function pickImageUrl(images, preferredSize = 'extralarge') {
   return any ? any['#text'] : null;
 }
 
-const ROW_HEIGHT = 64;
+const ROW_HEIGHT = 70;
 
 export default function QueueSheet({ visible, onClose, queue, currentIndex, onReorder, onTrackSelect, onDelete }) {
   const insets = useSafeAreaInsets();
@@ -39,6 +39,14 @@ export default function QueueSheet({ visible, onClose, queue, currentIndex, onRe
   const shuffleOpacity = useRef(new Animated.Value(1)).current;
   const [trackArtwork, setTrackArtwork] = useState({});
   const dismissAnim = useRef(new Animated.Value(0)).current;
+
+  // Auto-scroll refs
+  const scrollViewRef = useRef(null);
+  const scrollOffset = useRef(0);
+  const startScrollOffset = useRef(0);
+  const autoScrollInterval = useRef(null);
+  const lastGestureDy = useRef(0);
+  const lastMoveY = useRef(0);
 
   useEffect(() => {
     if (visible) {
@@ -168,38 +176,87 @@ export default function QueueSheet({ visible, onClose, queue, currentIndex, onRe
     onReorder(newQueue, newCurrentIndex);
   };
 
+  const stopAutoScroll = () => {
+    if (autoScrollInterval.current) {
+      clearInterval(autoScrollInterval.current);
+      autoScrollInterval.current = null;
+    }
+  };
+
+  const handleDragMove = (dy, moveY) => {
+    const currentDraggedIndex = draggedIndexRef.current;
+    if (currentDraggedIndex === null) return;
+
+    // Calculate effective dy (gesture dy + scroll delta)
+    const scrollDelta = scrollOffset.current - startScrollOffset.current;
+    const effectiveDy = dy + scrollDelta;
+    
+    dragY.setValue(effectiveDy);
+
+    // estimate target index from drag distance
+    const offset = Math.round(effectiveDy / ROW_HEIGHT);
+    let newIndex = currentDraggedIndex + offset;
+    if (newIndex < 0) newIndex = 0;
+    const maxIndex = localQueueRef.current.length - 1;
+    if (newIndex > maxIndex) newIndex = maxIndex;
+
+    if (newIndex !== draggedOverIndexRef.current) {
+      setDraggedOverIndex(newIndex);
+      draggedOverIndexRef.current = newIndex;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+
+    // Auto-scroll logic
+    const SCROLL_ZONE = 100;
+    const TOP_ZONE = 200; // Approximate header height + margin
+    const BOTTOM_ZONE = screenHeight - 100;
+
+    let scrollSpeed = 0;
+    if (moveY < TOP_ZONE) {
+      scrollSpeed = -10;
+    } else if (moveY > BOTTOM_ZONE) {
+      scrollSpeed = 10;
+    }
+
+    if (scrollSpeed !== 0) {
+      if (!autoScrollInterval.current) {
+        autoScrollInterval.current = setInterval(() => {
+          const newOffset = scrollOffset.current + scrollSpeed;
+          if (newOffset < 0) return; // Don't scroll past top
+          // We rely on ScrollView to clamp bottom
+          
+          scrollViewRef.current?.scrollTo({ y: newOffset, animated: false });
+          // We need to update the drag position because scrollOffset changed
+          // handleDragMove will use the new scrollOffset
+          handleDragMove(lastGestureDy.current, lastMoveY.current);
+        }, 16);
+      }
+    } else {
+      stopAutoScroll();
+    }
+  };
+
   const startDrag = (index) => {
     setDraggedIndex(index);
     setDraggedOverIndex(index);
     draggedIndexRef.current = index;
     draggedOverIndexRef.current = index;
+    startScrollOffset.current = scrollOffset.current;
     dragY.setValue(0);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
   };
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: () => draggedIndexRef.current !== null,
       onPanResponderMove: (_evt, gestureState) => {
-        const currentDraggedIndex = draggedIndexRef.current;
-        if (currentDraggedIndex === null) return;
-        const { dy } = gestureState;
-        dragY.setValue(dy);
-
-        // estimate target index from drag distance
-        const offset = Math.round(dy / ROW_HEIGHT);
-        let newIndex = currentDraggedIndex + offset;
-        if (newIndex < 0) newIndex = 0;
-        const maxIndex = localQueueRef.current.length - 1;
-        if (newIndex > maxIndex) newIndex = maxIndex;
-
-        if (newIndex !== draggedOverIndexRef.current) {
-          setDraggedOverIndex(newIndex);
-          draggedOverIndexRef.current = newIndex;
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        }
+        lastGestureDy.current = gestureState.dy;
+        lastMoveY.current = gestureState.moveY;
+        handleDragMove(gestureState.dy, gestureState.moveY);
       },
       onPanResponderRelease: () => {
+        stopAutoScroll();
         const from = draggedIndexRef.current;
         const to = draggedOverIndexRef.current;
         if (from !== null && to !== null && from !== to) {
@@ -219,6 +276,7 @@ export default function QueueSheet({ visible, onClose, queue, currentIndex, onRe
       },
       onPanResponderTerminationRequest: () => false,
       onPanResponderTerminate: () => {
+        stopAutoScroll();
         // Clear all offsets
         Object.keys(itemOffsets).forEach((key) => {
           delete itemOffsets[key];
@@ -326,14 +384,22 @@ export default function QueueSheet({ visible, onClose, queue, currentIndex, onRe
     }
 
     return (
-      <View key={`queue-track-${index}-${trackKey}`}>
+      <View
+        key={`queue-track-${index}-${trackKey}`}
+        style={{
+          zIndex: isDragging ? 999 : 0,
+          elevation: isDragging ? 5 : 0,
+        }}
+      >
         <SwipeableQueueRow
           onDelete={() => handleDelete(index)}
           enabled={!isCurrentTrack && draggedIndex === null}
+          style={{ overflow: 'visible' }}
         >
           <Animated.View
             {...panResponder.panHandlers}
             style={{
+              zIndex: isDragging ? 999 : 0,
               opacity: isDragging ? 0.9 : 1,
               transform: [
                 {
@@ -541,10 +607,15 @@ export default function QueueSheet({ visible, onClose, queue, currentIndex, onRe
               </View>
             </View>
             <ScrollView
+              ref={scrollViewRef}
               style={styles.scrollView}
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
               scrollEnabled={draggedIndex === null}
+              onScroll={(e) => {
+                scrollOffset.current = e.nativeEvent.contentOffset.y;
+              }}
+              scrollEventThrottle={16}
             >
               {localQueue.slice(currentIndex + 1).map((track, idx) =>
                 renderTrack(track, currentIndex + 1 + idx)

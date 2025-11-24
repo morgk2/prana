@@ -320,6 +320,10 @@ export default function HomeScreen({ route }) {
                 </View>
             )}
           </>
+        ) : !isLibraryLoaded ? (
+           <View style={styles.emptyState}>
+             <ActivityIndicator size="large" color={theme.primaryText} />
+           </View>
         ) : (
           <View style={styles.emptyState}>
             <Ionicons

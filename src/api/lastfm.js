@@ -421,3 +421,34 @@ export async function getSpotifyPlaylist(playlistId) {
     owner: json.owner?.display_name
   };
 }
+
+// Get user's public playlists
+export async function getUserPlaylists(userId) {
+  const token = await getSpotifyToken();
+
+  const url = new URL(`https://api.spotify.com/v1/users/${userId}/playlists`);
+  url.searchParams.set('limit', '50'); // Max limit per request
+
+  const res = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Spotify user playlists error ${res.status}: ${text}`);
+  }
+
+  const json = await res.json();
+  const items = json.items ?? [];
+
+  return items.map(playlist => ({
+    name: playlist.name,
+    id: playlist.id,
+    description: playlist.description,
+    image: mapSpotifyImagesToLastfmStyle(playlist.images),
+    trackCount: playlist.tracks?.total || 0,
+    owner: playlist.owner?.display_name
+  }));
+}

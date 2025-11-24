@@ -4,7 +4,7 @@ import { RectButton } from 'react-native-gesture-handler';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function SwipeableQueueRow({ children, onDelete, enabled = true }) {
+export default function SwipeableQueueRow({ children, onDelete, enabled = true, style }) {
     const swipeableRef = useRef(null);
 
     const handleDelete = () => {
@@ -43,6 +43,7 @@ export default function SwipeableQueueRow({ children, onDelete, enabled = true }
         <Swipeable
             ref={swipeableRef}
             enabled={enabled}
+            containerStyle={style}
             renderRightActions={renderRightActions}
             onSwipeableOpen={(direction) => {
                 if (direction === 'right') {

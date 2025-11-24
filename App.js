@@ -17,7 +17,7 @@ import LibrarySongs from './src/components/LibrarySongs';
 import LibraryPlaylists from './src/components/LibraryPlaylists';
 import AddPlaylist from './src/components/AddPlaylist';
 import PlaylistPage from './src/components/PlaylistPage';
-import ImportSpotifyPlaylist from './src/components/ImportSpotifyPlaylist';
+import ImportExternalPlaylist from './src/components/ImportExternalPlaylist';
 import SongPlayer from './src/components/SongPlayer';
 import HomeScreen from './src/components/HomeScreen';
 import ModulesPage from './src/components/ModulesPage';
@@ -372,7 +372,7 @@ function LibraryHomeScreen({ route, navigation }) {
             })}
           >
             <View style={styles.libraryNavIconContainer}>
-              <Ionicons name="list" size={22} color={theme.primaryText} />
+              <Ionicons name="list" size={28} color={theme.primaryText} />
             </View>
             <Text style={[styles.libraryNavText, { color: theme.primaryText }]}>Playlists</Text>
             <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
@@ -383,7 +383,7 @@ function LibraryHomeScreen({ route, navigation }) {
             onPress={() => navigation.navigate('LibraryArtists', { theme, libraryArtists, openArtistPage })}
           >
             <View style={styles.libraryNavIconContainer}>
-              <Ionicons name="person" size={22} color={theme.primaryText} />
+              <Ionicons name="person" size={28} color={theme.primaryText} />
             </View>
             <Text style={[styles.libraryNavText, { color: theme.primaryText }]}>Artists</Text>
             <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
@@ -394,7 +394,7 @@ function LibraryHomeScreen({ route, navigation }) {
             onPress={() => navigation.navigate('LibraryAlbums', { theme, libraryAlbums, onTrackPress: openTrackPlayer })}
           >
             <View style={styles.libraryNavIconContainer}>
-              <Ionicons name="albums" size={22} color={theme.primaryText} />
+              <Ionicons name="albums" size={28} color={theme.primaryText} />
             </View>
             <Text style={[styles.libraryNavText, { color: theme.primaryText }]}>Albums</Text>
             <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
@@ -405,7 +405,7 @@ function LibraryHomeScreen({ route, navigation }) {
             onPress={() => navigation.navigate('LibrarySongs', { theme, library, onTrackPress: openTrackPlayer, addToQueue, deleteTrack, updateTrack, playlists, addTrackToPlaylist, showNotification })}
           >
             <View style={styles.libraryNavIconContainer}>
-              <Ionicons name="musical-note" size={22} color={theme.primaryText} />
+              <Ionicons name="musical-note" size={28} color={theme.primaryText} />
             </View>
             <Text style={[styles.libraryNavText, { color: theme.primaryText }]}>Songs</Text>
             <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
@@ -882,11 +882,11 @@ function SettingsPage({ route, navigation }) {
 
           <Pressable
             style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
-            onPress={() => navigation.navigate('ImportSpotifyPlaylist', { theme, addPlaylist: route.params.addPlaylist, showNotification: route.params.showNotification })}
+            onPress={() => navigation.navigate('ImportExternalPlaylist', { theme, addPlaylist: route.params.addPlaylist, showNotification: route.params.showNotification })}
           >
             <View style={styles.settingsRowLeft}>
               <Ionicons name="musical-notes-outline" size={24} color={theme.primaryText} />
-              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Import Spotify Playlist</Text>
+              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Import External Playlists</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
           </Pressable>
@@ -1190,6 +1190,7 @@ function AppContent() {
   const [shouldAutoPlay, setShouldAutoPlay] = useState(true);
   const [importProgress, setImportProgress] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
+  const [isLibraryLoaded, setIsLibraryLoaded] = useState(false);
   const queueNotificationTimer = useRef(null);
   const queueNotificationAnim = useRef(new Animated.Value(0)).current;
 
@@ -1224,6 +1225,8 @@ function AppContent() {
       }
     } catch (e) {
       console.warn('Failed to load library', e);
+    } finally {
+      setIsLibraryLoaded(true);
     }
   };
 
@@ -2239,6 +2242,7 @@ function AppContent() {
           onTrackPress: openTrackPlayer,
           openArtistPage,
           pickLocalAudio,
+          isLibraryLoaded,
         },
       }}
     />
@@ -2565,7 +2569,7 @@ function AppContent() {
             <RootStack.Screen name="LibraryPlaylists" component={LibraryPlaylists} />
             <RootStack.Screen name="PlaylistPage" component={PlaylistPage} />
             <RootStack.Screen name="AddPlaylist" component={AddPlaylist} />
-            <RootStack.Screen name="ImportSpotifyPlaylist" component={ImportSpotifyPlaylist} />
+            <RootStack.Screen name="ImportExternalPlaylist" component={ImportExternalPlaylist} />
           </RootStack.Navigator>
         </NavigationContainer>
 
@@ -2652,7 +2656,7 @@ function AppContent() {
           >
             <Ionicons
               name={currentTab === 'home' ? 'home' : 'home-outline'}
-              size={22}
+              size={28}
               color={currentTab === 'home' ? theme.primaryText : theme.secondaryText}
               style={styles.tabIcon}
             />
@@ -2672,7 +2676,7 @@ function AppContent() {
           >
             <Ionicons
               name={currentTab === 'search' ? 'search' : 'search-outline'}
-              size={22}
+              size={28}
               color={currentTab === 'search' ? theme.primaryText : theme.secondaryText}
               style={styles.tabIcon}
             />
@@ -2692,7 +2696,7 @@ function AppContent() {
           >
             <Ionicons
               name={currentTab === 'library' ? 'library' : 'library-outline'}
-              size={22}
+              size={28}
               color={currentTab === 'library' ? theme.primaryText : theme.secondaryText}
               style={styles.tabIcon}
             />

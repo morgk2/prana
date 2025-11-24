@@ -31,6 +31,7 @@ import LyricsView from './LyricsView';
 import { preloadLyrics, preloadQueueLyrics } from '../utils/lyricsCache';
 import { getArtworkWithFallback } from '../utils/artworkFallback';
 import { getFreshTidalStream, getPlayableTrack, shouldStreamFromTidal } from '../utils/tidalStreamHelper';
+import { useDownload } from '../context/DownloadContext';
 
 function formatTime(seconds) {
   if (!seconds || isNaN(seconds)) return '0:00';
@@ -165,6 +166,7 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
 export default function SongPlayer({ isVisible = true, track, onClose, onOpen, theme, setPlayerControls, onArtistPress, queue = [], queueIndex = 0, onTrackChange, onQueueReorder, toggleFavorite, isFavorite, shouldPlay = true, zIndex = 1000, shouldHide = false }) {
   const { height: screenHeight, width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const { recentDownloads } = useDownload();
   const colors = {
     primary: '#000000',
     secondary: '#202020',
@@ -198,6 +200,12 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
 
   // Ref to prevent unnecessary artwork refetches if track props change shallowly
   const lastTrackSignature = useRef('');
+
+  const resolvedDownloadUri = React.useMemo(() => {
+    if (!track) return null;
+    const tid = track.id || track.name;
+    return recentDownloads?.[tid] || recentDownloads?.[track.name];
+  }, [recentDownloads, track?.id, track?.name]);
 
   // Fetch artwork if missing
   useEffect(() => {
@@ -407,8 +415,15 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
     let cancelled = false;
 
     async function load() {
-      let currentUri = track?.uri ?? track?.previewUrl ?? null;
+      // Check for downloaded file first
+      const downloadedUri = resolvedDownloadUri;
+      
+      let currentUri = downloadedUri || track?.uri || track?.previewUrl || null;
       let workingTidalId = track?.tidalId;
+      
+      if (downloadedUri) {
+        console.log('[SongPlayer] Playing from download:', downloadedUri);
+      }
 
       if (!currentUri && shouldStreamFromTidal(track, true)) {
         try {
@@ -544,7 +559,7 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
       setSound(null);
       setPlayback({ positionMillis: 0, durationMillis: 0, isPlaying: false });
     };
-  }, [track?.uri, track?.previewUrl, track?.id, track?.name]);
+  }, [track?.uri, track?.previewUrl, track?.id, track?.name, resolvedDownloadUri]);
 
   useEffect(() => {
     if (track) {

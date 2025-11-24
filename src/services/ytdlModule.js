@@ -51,20 +51,68 @@ async function getSpotifyToken() {
     return spotifyAccessToken;
 }
 
-async function fetchWithAuth(url) {
-    const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': \`Bearer \${API_KEY}\`
-        }
-    });
+// List of proxies for rotation (Direct + CORS proxies to change IP)
+const PROXIES = [
+    null, // Direct connection (Primary)
+    'https://corsproxy.io/?', // Public CORS proxy (Secondary IP)
+    // Add more web proxies here if needed
+];
 
-    if (!response.ok) {
-        throw new Error(\`API Error: \${response.status}\`);
+async function fetchWithAuth(url) {
+    let lastError = null;
+
+    for (const proxy of PROXIES) {
+        try {
+            // Construct URL: Direct or via Proxy
+            // For corsproxy.io, we append the target URL directly
+            const requestUrl = proxy ? \`\${proxy}\${url}\` : url;
+            
+            if (proxy) {
+                console.log(\`[YTDL] Retrying via proxy: \${proxy}\`);
+            }
+
+            const response = await fetch(requestUrl, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': \`Bearer \${API_KEY}\`,
+                    // Add origin header if using proxy to be safe
+                    ...(proxy ? { 'Origin': 'http://localhost' } : {})
+                }
+            });
+
+            if (!response.ok) {
+                // Check for rate limits or auth errors
+                if (response.status === 429 || response.status === 401) {
+                    console.warn(\`[YTDL] Rate limit/Auth error (\${response.status}) on \${proxy ? 'proxy' : 'direct'}, rotating...\`);
+                    continue; // Try next proxy
+                }
+
+                // Check for specific "try after" message in body if possible
+                const text = await response.text();
+                try {
+                    const json = JSON.parse(text);
+                    if (json.message && json.message.toLowerCase().includes('try after')) {
+                        console.warn(\`[YTDL] Rate limit message detected: "\${json.message}", rotating...\`);
+                        continue;
+                    }
+                    // If other error, throw it
+                    throw new Error(json.message || \`API Error: \${response.status}\`);
+                } catch (e) {
+                    throw new Error(\`API Error: \${response.status} \${text}\`);
+                }
+            }
+
+            return response.json();
+
+        } catch (error) {
+            console.warn(\`[YTDL] Request failed via \${proxy || 'direct'}:\`, error.message);
+            lastError = error;
+            // Continue to next proxy on network errors
+        }
     }
 
-    return response.json();
+    throw lastError || new Error('All proxies failed');
 }
 
 async function tryService(serviceName, encodedUrl) {
@@ -73,7 +121,7 @@ async function tryService(serviceName, encodedUrl) {
      
      const data = await fetchWithAuth(apiUrl);
      console.log(\`[YTDL] Response (\${serviceName}):\`, JSON.stringify(data).substring(0, 200) + '...');
-
+    
      if (!data.ok && !data.url && !data.directUrl) {
          throw new Error(data.message || \`Failed to resolve stream via \${serviceName}\`);
      }

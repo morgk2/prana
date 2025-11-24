@@ -61,49 +61,73 @@ async function fetchWithFallback(endpoint, options = {}) {
     const uniqueServers = [...new Set(servers)];
     let lastError = null;
 
-    for (const server of uniqueServers) {
-        try {
-            const url = \`\${server}\${endpoint}\`;
-            console.log(\`[Tidal] Trying: \${url}\`);
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000);
-            
-            const response = await fetch(url, {
-                ...options,
-                headers: {
-                    'Accept': 'application/json',
-                    ...options.headers,
-                },
-                signal: controller.signal,
-            }).finally(() => clearTimeout(timeoutId));
+    const BATCH_SIZE = 10;
 
-            if (response.ok) {
-                const text = await response.text();
-                if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
-                    continue;
-                }
-                try {
-                    return JSON.parse(text);
-                } catch (parseError) {
-                    continue;
-                }
-            }
-            if (response.status === 429 || response.status === 402 || response.status >= 500) {
-                continue;
-            }
-            if (response.status >= 400) {
-                if (response.status === 404) {
-                    continue;
-                }
-                const errorText = await response.text().catch(() => '');
-                throw new Error(\`HTTP \${response.status}: \${errorText || response.statusText}\`);
-            }
-            lastError = new Error(\`HTTP \${response.status}: \${response.statusText}\`);
-        } catch (error) {
-            if (error.message && error.message.includes('HTTP 4')) {
-                throw error;
-            }
-            lastError = error;
+    for (let i = 0; i < uniqueServers.length; i += BATCH_SIZE) {
+        const batch = uniqueServers.slice(i, i + BATCH_SIZE);
+        try {
+            const result = await new Promise((resolve, reject) => {
+                let rejectedCount = 0;
+                let resolved = false;
+                
+                batch.forEach(async (server) => {
+                    try {
+                        const url = \`\${server}\${endpoint}\`;
+                        console.log(\`[Tidal] Trying: \${url}\`);
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 5000);
+                        
+                        const response = await fetch(url, {
+                            ...options,
+                            headers: {
+                                'Accept': 'application/json',
+                                ...options.headers,
+                            },
+                            signal: controller.signal,
+                        }).finally(() => clearTimeout(timeoutId));
+
+                        if (response.ok) {
+                            const text = await response.text();
+                            if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+                                throw new Error('Invalid response (HTML)');
+                            }
+                            try {
+                                const json = JSON.parse(text);
+                                if (!resolved) {
+                                    resolved = true;
+                                    resolve(json);
+                                }
+                                return;
+                            } catch (parseError) {
+                                throw new Error('Invalid JSON');
+                            }
+                        }
+                        
+                        if (response.status === 429 || response.status === 402 || response.status >= 500) {
+                             throw new Error(\`HTTP \${response.status}\`);
+                        }
+                        if (response.status >= 400) {
+                             if (response.status === 404) {
+                                 throw new Error('HTTP 404');
+                             }
+                             const errorText = await response.text().catch(() => '');
+                             throw new Error(\`HTTP \${response.status}: \${errorText || response.statusText}\`);
+                        }
+                         throw new Error(\`HTTP \${response.status}: \${response.statusText}\`);
+                    } catch (error) {
+                        if (!resolved) {
+                            if (error.name !== 'AbortError') lastError = error;
+                            rejectedCount++;
+                            if (rejectedCount === batch.length) {
+                                reject(new Error('Batch failed'));
+                            }
+                        }
+                    }
+                });
+            });
+            return result;
+        } catch (e) {
+            // Batch failed, continue to next
         }
     }
     throw lastError || new Error('All Tidal servers failed');

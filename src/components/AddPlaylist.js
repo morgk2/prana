@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { View, Text, TextInput, Pressable, Image, StyleSheet, ScrollView, Modal, FlatList, Animated, PanResponder } from 'react-native';
+import { View, Text, TextInput, Pressable, Image, StyleSheet, ScrollView, Modal, FlatList, Animated, PanResponder, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,6 +30,15 @@ export default function AddPlaylist({ route, navigation }) {
     const [draggedOverIndex, setDraggedOverIndex] = useState(null);
     const dragY = useRef(new Animated.Value(0)).current;
     const itemOffsets = useRef({}).current;
+    const { height: screenHeight } = useWindowDimensions();
+
+    // Auto-scroll refs
+    const scrollViewRef = useRef(null);
+    const scrollOffset = useRef(0);
+    const startScrollOffset = useRef(0);
+    const autoScrollInterval = useRef(null);
+    const lastGestureDy = useRef(0);
+    const lastMoveY = useRef(0);
 
     // Refs for PanResponder
     const selectedTracksRef = useRef(selectedTracks);
@@ -102,29 +111,73 @@ export default function AddPlaylist({ route, navigation }) {
         setSelectedTracks(newTracks);
     };
 
+    const stopAutoScroll = () => {
+        if (autoScrollInterval.current) {
+            clearInterval(autoScrollInterval.current);
+            autoScrollInterval.current = null;
+        }
+    };
+
+    const handleDragMove = (dy, moveY) => {
+        const currentDraggedIndex = draggedIndexRef.current;
+        if (currentDraggedIndex === null) return;
+
+        // Calculate effective dy (gesture dy + scroll delta)
+        const scrollDelta = scrollOffset.current - startScrollOffset.current;
+        const effectiveDy = dy + scrollDelta;
+
+        dragY.setValue(effectiveDy);
+
+        const offset = Math.round(effectiveDy / ROW_HEIGHT);
+        let newIndex = currentDraggedIndex + offset;
+        if (newIndex < 0) newIndex = 0;
+        const maxIndex = selectedTracksRef.current.length - 1;
+        if (newIndex > maxIndex) newIndex = maxIndex;
+
+        if (newIndex !== draggedOverIndexRef.current) {
+            setDraggedOverIndex(newIndex);
+            draggedOverIndexRef.current = newIndex;
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+
+        // Auto-scroll logic
+        const SCROLL_ZONE = 100;
+        const TOP_ZONE = 200;
+        const BOTTOM_ZONE = screenHeight - 100;
+
+        let scrollSpeed = 0;
+        if (moveY < TOP_ZONE) {
+            scrollSpeed = -10;
+        } else if (moveY > BOTTOM_ZONE) {
+            scrollSpeed = 10;
+        }
+
+        if (scrollSpeed !== 0) {
+            if (!autoScrollInterval.current) {
+                autoScrollInterval.current = setInterval(() => {
+                    const newOffset = scrollOffset.current + scrollSpeed;
+                    if (newOffset < 0) return;
+                    
+                    scrollViewRef.current?.scrollTo({ y: newOffset, animated: false });
+                    handleDragMove(lastGestureDy.current, lastMoveY.current);
+                }, 16);
+            }
+        } else {
+            stopAutoScroll();
+        }
+    };
+
     const panResponder = useRef(
         PanResponder.create({
             onStartShouldSetPanResponder: () => false,
             onMoveShouldSetPanResponder: () => draggedIndexRef.current !== null,
             onPanResponderMove: (_evt, gestureState) => {
-                const currentDraggedIndex = draggedIndexRef.current;
-                if (currentDraggedIndex === null) return;
-                const { dy } = gestureState;
-                dragY.setValue(dy);
-
-                const offset = Math.round(dy / ROW_HEIGHT);
-                let newIndex = currentDraggedIndex + offset;
-                if (newIndex < 0) newIndex = 0;
-                const maxIndex = selectedTracksRef.current.length - 1;
-                if (newIndex > maxIndex) newIndex = maxIndex;
-
-                if (newIndex !== draggedOverIndexRef.current) {
-                    setDraggedOverIndex(newIndex);
-                    draggedOverIndexRef.current = newIndex;
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }
+                lastGestureDy.current = gestureState.dy;
+                lastMoveY.current = gestureState.moveY;
+                handleDragMove(gestureState.dy, gestureState.moveY);
             },
             onPanResponderRelease: () => {
+                stopAutoScroll();
                 const from = draggedIndexRef.current;
                 const to = draggedOverIndexRef.current;
                 if (from !== null && to !== null && from !== to) {
@@ -141,6 +194,7 @@ export default function AddPlaylist({ route, navigation }) {
                 draggedOverIndexRef.current = null;
             },
             onPanResponderTerminate: () => {
+                stopAutoScroll();
                 Object.keys(itemOffsets).forEach((key) => {
                     delete itemOffsets[key];
                 });
@@ -157,6 +211,7 @@ export default function AddPlaylist({ route, navigation }) {
         setDraggedOverIndex(index);
         draggedIndexRef.current = index;
         draggedOverIndexRef.current = index;
+        startScrollOffset.current = scrollOffset.current;
         dragY.setValue(0);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     };
@@ -229,7 +284,7 @@ export default function AddPlaylist({ route, navigation }) {
         }
 
         return (
-            <View key={`selected-track-${index}-${trackKey}`} style={{ zIndex: isDragging ? 100 : 1 }}>
+            <View key={`selected-track-${index}-${trackKey}`} style={{ zIndex: isDragging ? 999 : 1 }}>
                 <Animated.View
                     {...panResponder.panHandlers}
                     style={{
@@ -237,6 +292,8 @@ export default function AddPlaylist({ route, navigation }) {
                             { translateY: isDragging ? dragY : itemOffsets[trackKey] },
                             { scale: isDragging ? 1.02 : 1 },
                         ],
+                        zIndex: isDragging ? 999 : 1,
+                        elevation: isDragging ? 5 : 0,
                         opacity: isDragging ? 0.9 : 1,
                         backgroundColor: isDragging ? theme.card : 'transparent',
                         borderRadius: isDragging ? 12 : 0,
@@ -337,9 +394,14 @@ export default function AddPlaylist({ route, navigation }) {
             </View>
 
             <ScrollView
+                ref={scrollViewRef}
                 style={styles.content}
                 contentContainerStyle={styles.scrollContent}
                 scrollEnabled={draggedIndex === null}
+                onScroll={(e) => {
+                    scrollOffset.current = e.nativeEvent.contentOffset.y;
+                }}
+                scrollEventThrottle={16}
             >
                 <View style={styles.imageContainer}>
                     <Pressable onPress={pickImage} style={[styles.imagePlaceholder, { backgroundColor: theme.card }]}>
