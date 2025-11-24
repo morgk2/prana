@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, FlatList, Pressable, Image, ActivityIndicator, StyleSheet, Switch, Alert, Modal, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import { ModuleManager } from '../services/ModuleManager';
 import { getArtworkWithFallback } from '../utils/artworkFallback';
 import { TIDAL_MODULE_CODE } from '../services/defaultTidalModule';
@@ -24,6 +26,12 @@ export default function ModulesPage({ route, navigation }) {
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [installCode, setInstallCode] = useState('');
 
+  // Disclaimer Modal state
+  const [showDisclaimerModal, setShowDisclaimerModal] = useState(false);
+
+  // Help Modal state
+  const [showHelpModal, setShowHelpModal] = useState(false);
+
   useEffect(() => {
     loadModules();
   }, []);
@@ -38,6 +46,34 @@ export default function ModulesPage({ route, navigation }) {
       setActiveModule(null);
     } else {
       navigation.goBack();
+    }
+  };
+
+  const handlePickModuleFile = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/javascript',
+        copyToCacheDirectory: true
+      });
+
+      if (result.canceled) return;
+      
+      const file = result.assets[0];
+      if (!file.name.endsWith('.js')) {
+        Alert.alert('Error', 'Please select a .js file');
+        return;
+      }
+
+      const fileContent = await FileSystem.readAsStringAsync(file.uri);
+      setInstallCode(fileContent);
+      Alert.alert(
+        'File Loaded',
+        `Loaded code from ${file.name}. Review and click Install.`,
+        [{ text: 'OK' }]
+      );
+    } catch (err) {
+      console.error('File pick error:', err);
+      Alert.alert('Error', 'Failed to read selected file');
     }
   };
 
@@ -229,6 +265,13 @@ export default function ModulesPage({ route, navigation }) {
         <Text style={[styles.title, { color: theme.primaryText }]}>
           {currentView === 'list' ? 'Modules' : activeModule?.name || 'Module'}
         </Text>
+        <Pressable 
+          onPress={() => setShowHelpModal(true)} 
+          hitSlop={10} 
+          style={styles.helpButton}
+        >
+          <Ionicons name="help-circle-outline" size={24} color={theme.primaryText} />
+        </Pressable>
       </View>
 
       {currentView === 'list' ? (
@@ -266,10 +309,10 @@ export default function ModulesPage({ route, navigation }) {
 
           <Pressable
             style={[styles.installButton, { backgroundColor: theme.inputBackground }]}
-            onPress={() => setShowInstallModal(true)}
+            onPress={() => setShowDisclaimerModal(true)}
           >
             <Ionicons name="add-circle-outline" size={24} color={theme.accent} />
-            <Text style={[styles.installButtonText, { color: theme.primaryText }]}>Install Custom Module</Text>
+            <Text style={[styles.installButtonText, { color: theme.primaryText }]}>Install Module</Text>
           </Pressable>
         </ScrollView>
       ) : (
@@ -381,7 +424,16 @@ export default function ModulesPage({ route, navigation }) {
             </Pressable>
           </View>
           <View style={styles.modalContent}>
-            <Text style={[styles.modalLabel, { color: theme.secondaryText }]}>Paste module code:</Text>
+            
+            <Pressable
+              style={[styles.quickInstallButton, { backgroundColor: theme.card, borderColor: theme.accent, marginBottom: 20 }]}
+              onPress={handlePickModuleFile}
+            >
+              <Ionicons name="document-text-outline" size={24} color={theme.accent} />
+              <Text style={[styles.quickInstallText, { color: theme.accent, fontSize: 16 }]}>Select .js File</Text>
+            </Pressable>
+
+            <Text style={[styles.modalLabel, { color: theme.secondaryText }]}>Or paste module code:</Text>
             <TextInput
               style={[styles.codeInput, { backgroundColor: theme.inputBackground, color: theme.primaryText }]}
               multiline
@@ -402,22 +454,126 @@ export default function ModulesPage({ route, navigation }) {
             
             <View style={styles.divider} />
             
-            <Pressable
-                style={[styles.quickInstallButton, { backgroundColor: theme.card, borderColor: theme.accent }]}
-                onPress={() => handleInstallModule(TIDAL_MODULE_CODE)}
-              >
-                 <Ionicons name="download-outline" size={20} color={theme.accent} />
-                 <Text style={[styles.quickInstallText, { color: theme.accent }]}>Load Default Tidal Module</Text>
-              </Pressable>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.defaultModulesRow}>
+              <Pressable
+                  style={[styles.quickInstallButton, { backgroundColor: theme.card, borderColor: theme.accent, marginRight: 10 }]}
+                  onPress={() => handleInstallModule(TIDAL_MODULE_CODE)}
+                >
+                   <Ionicons name="download-outline" size={20} color={theme.accent} />
+                   <Text style={[styles.quickInstallText, { color: theme.accent }]}>Tidal</Text>
+                </Pressable>
 
-            <Pressable
-                style={[styles.quickInstallButton, { backgroundColor: theme.card, borderColor: theme.accent }]}
-                onPress={() => handleInstallModule(YTDL_MODULE_CODE)}
-              >
-                 <Ionicons name="logo-youtube" size={20} color={theme.accent} />
-                 <Text style={[styles.quickInstallText, { color: theme.accent }]}>Load YTDL Module</Text>
-              </Pressable>
+              <Pressable
+                  style={[styles.quickInstallButton, { backgroundColor: theme.card, borderColor: theme.accent }]}
+                  onPress={() => handleInstallModule(YTDL_MODULE_CODE)}
+                >
+                   <Ionicons name="logo-youtube" size={20} color={theme.accent} />
+                   <Text style={[styles.quickInstallText, { color: theme.accent }]}>YTDL</Text>
+                </Pressable>
+            </ScrollView>
           </View>
+        </View>
+      </Modal>
+
+      {/* Disclaimer Modal */}
+      <Modal
+        visible={showDisclaimerModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowDisclaimerModal(false)}
+      >
+        <View style={[styles.modalContainer, { backgroundColor: theme.background }]}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => setShowDisclaimerModal(false)}>
+              <Text style={{ color: theme.secondaryText, fontSize: 16 }}>Cancel</Text>
+            </Pressable>
+            <Text style={[styles.modalTitle, { color: theme.primaryText, fontSize: 18 }]}>You wouldn't steal a car</Text>
+            <Pressable onPress={() => {
+              setShowDisclaimerModal(false);
+              setShowInstallModal(true);
+            }}>
+              <Text style={{ color: theme.accent, fontSize: 16, fontWeight: '600' }}>I Agree</Text>
+            </Pressable>
+          </View>
+          <ScrollView style={styles.modalContent}>
+            <Text style={[styles.helpText, { color: theme.secondaryText, fontSize: 16, lineHeight: 24 }]}>
+              By proceeding to install a custom module, you acknowledge and agree to the following terms:
+              {"\n\n"}
+              <Text style={{ fontWeight: 'bold', color: theme.primaryText }}>1. Ownership and Legality:</Text> You confirm that any music or media accessed through this module belongs to you or that you have purchased it legally. Prana is a tool designed for personal media management and does not endorse or facilitate copyright infringement.
+              {"\n\n"}
+              <Text style={{ fontWeight: 'bold', color: theme.primaryText }}>2. Supporting Artists:</Text> Music is an art form that requires time, effort, and resources to create. We strongly advise and encourage all users to support artists by purchasing their music through official channels. Stealing music hurts the creators you love.
+              {"\n\n"}
+              <Text style={{ fontWeight: 'bold', color: theme.primaryText }}>3. User Responsibility:</Text> The Prana team takes no responsibility for the misuse of this advanced feature. You, the user, are solely responsible for ensuring that your use of this app complies with all applicable laws and regulations regarding copyright and intellectual property.
+              {"\n\n"}
+              <Text style={{ fontWeight: 'bold', color: theme.primaryText }}>4. Enforcement:</Text> Prana actively monitors and takes down any public modules distributed on the internet that violate these terms. We are committed to maintaining a legal and ethical ecosystem for all users ;)
+              {"\n\n"}
+              <Text style={{ fontWeight: 'bold', fontSize: 20, color: theme.primaryText, textAlign: 'center' }}>You wouldn't steal a car ;)</Text>
+              {"\n\n"}
+              <Text style={{ fontWeight: 'bold', color: theme.primaryText, fontStyle: 'italic' }}>I, morgk the developer of this app hate pirating media and i will hate you if you pirate media!! i hate illegal stuff >:( !!!!</Text>
+              {"\n\n"}
+              By clicking "I Agree", you certify that you understand these terms and will use Prana's module engine responsibly and legally.
+            </Text>
+            <View style={{ height: 50 }} />
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Help Modal */}
+      <Modal
+        visible={showHelpModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowHelpModal(false)}
+      >
+        <View style={[styles.modalContainer, { backgroundColor: theme.background }]}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: theme.primaryText }]}>Module Engine Guide</Text>
+            <Pressable onPress={() => setShowHelpModal(false)}>
+              <Ionicons name="close" size={28} color={theme.primaryText} />
+            </Pressable>
+          </View>
+          <ScrollView style={styles.modalContent}>
+            <Text style={[styles.helpSectionTitle, { color: theme.primaryText }]}>How it works</Text>
+            <Text style={[styles.helpText, { color: theme.secondaryText }]}>
+              We understand that advanced users often host their personal music collections in the cloud or have specific preferences for accessing their purchased albums on the go. Prana's module engine is designed to bridge this gap, allowing you to seamlessly connect to your external libraries. By installing custom JavaScript modules, you can stream and download your favorite tracks directly within the app, ensuring your music is always accessible, wherever you are.
+            </Text>
+
+            <Text style={[styles.helpSectionTitle, { color: theme.primaryText }]}>Creating a Module</Text>
+            <Text style={[styles.helpText, { color: theme.secondaryText }]}>
+              A module is a simple JavaScript file (.js) that returns an object defining its capabilities. The file content is executed as a function body.
+            </Text>
+
+            <View style={[styles.codeBlock, { backgroundColor: theme.inputBackground }]}>
+              <Text style={[styles.codeText, { color: theme.primaryText }]}>
+{`return {
+  id: "my-module",
+  name: "My Service",
+  version: "1.0.0",
+  
+  // Search for tracks
+  searchTracks: async (query) => {
+    // Return array of tracks
+    return { tracks: [...] };
+  },
+
+  // Get stream URL
+  getTrackStreamUrl: async (id) => {
+    return { streamUrl: "https://..." };
+  }
+}`}
+              </Text>
+            </View>
+
+            <Text style={[styles.helpSectionTitle, { color: theme.primaryText }]}>Installing a Module</Text>
+            <Text style={[styles.helpText, { color: theme.secondaryText }]}>
+              1. Tap the "Install Module" button on the Modules page.{"\n"}
+              2. Tap "Select .js File" to pick a module file from your device.{"\n"}
+              3. Alternatively, you can paste the module code directly into the text area.{"\n"}
+              4. Tap "Install" to add the module to your library.
+            </Text>
+            
+            <View style={{ height: 50 }} />
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -433,8 +589,9 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 16,
   },
-  backButton: { marginRight: 8 },
-  title: { fontSize: 20, fontWeight: '600' },
+  backButton: { marginRight: 8, zIndex: 1 },
+  helpButton: { marginLeft: 8, zIndex: 1 },
+  title: { fontSize: 20, fontWeight: '600', flex: 1, textAlign: 'center' },
   modulesListContainer: { padding: 16 },
   sectionTitle: { fontSize: 16, fontWeight: '600' },
   moduleCard: {
@@ -531,5 +688,10 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   modalInstallButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  divider: { height: 1, backgroundColor: '#ccc', marginVertical: 20, opacity: 0.2 }
+  divider: { height: 1, backgroundColor: '#ccc', marginVertical: 20, opacity: 0.2 },
+  defaultModulesRow: { flexDirection: 'row', paddingBottom: 20 },
+  helpSectionTitle: { fontSize: 18, fontWeight: '600', marginTop: 16, marginBottom: 8 },
+  helpText: { fontSize: 14, lineHeight: 22, marginBottom: 16 },
+  codeBlock: { padding: 12, borderRadius: 8, marginBottom: 16 },
+  codeText: { fontFamily: 'monospace', fontSize: 12 },
 });

@@ -1,7 +1,7 @@
 import { DownloadProvider } from './src/context/DownloadContext';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TextInput, Button, ActivityIndicator, Image, FlatList, ScrollView, Pressable, useColorScheme, Animated, Modal, Alert, useWindowDimensions } from 'react-native';
+import { StyleSheet, Text, View, TextInput, Button, ActivityIndicator, Image, FlatList, ScrollView, Pressable, useColorScheme, Animated, Modal, Alert, useWindowDimensions, Linking } from 'react-native';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { NavigationContainer, StackActions } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -901,6 +901,17 @@ function SettingsPage({ route, navigation }) {
             </View>
             <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
           </Pressable>
+
+          <Pressable
+            style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
+            onPress={() => navigation.navigate('Donate', { theme })}
+          >
+            <View style={styles.settingsRowLeft}>
+              <Ionicons name="heart-outline" size={24} color={theme.primaryText} />
+              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Donate</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
+          </Pressable>
         </View>
       </ScrollView>
     </View>
@@ -987,7 +998,7 @@ function AboutPage({ route, navigation }) {
 
       <View style={{ flex: 1, padding: 24, alignItems: 'center', justifyContent: 'center' }}>
         <Image
-          source={require('./assets/adaptive-icon.png')}
+          source={require('./assets/logo.png')}
           style={{ width: 120, height: 120, marginBottom: 24, borderRadius: 24 }}
         />
         <Text style={[styles.title, { color: theme.primaryText, marginBottom: 16, textAlign: 'center' }]}>Prana</Text>
@@ -995,6 +1006,60 @@ function AboutPage({ route, navigation }) {
           This is the closed testing of Prana, modular advanced music cataloging and playing app.
         </Text>
       </View>
+    </View>
+  );
+}
+
+// Donate Page
+function DonatePage({ route, navigation }) {
+  const { theme } = route.params;
+
+  return (
+    <View style={[styles.settingsPageContainer, { backgroundColor: theme.background }]}>
+      {/* Header */}
+      <View style={styles.settingsPageHeader}>
+        <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.backButtonContainer}>
+          <Ionicons name="chevron-back" size={32} color={theme.primaryText} />
+        </Pressable>
+        <Text style={[styles.settingsPageTitle, { color: theme.primaryText }]}>Donate</Text>
+      </View>
+
+      <ScrollView style={{ flex: 1 }}>
+        <View style={{ flex: 1, padding: 24, alignItems: 'center', justifyContent: 'center' }}>
+          <Image
+            source={require('./assets/logo.png')}
+            style={{ width: 120, height: 120, marginBottom: 24, borderRadius: 24 }}
+          />
+          <Text style={[styles.title, { color: theme.primaryText, marginBottom: 16, textAlign: 'center' }]}>Support Prana</Text>
+          
+          <Text style={[{ color: theme.secondaryText, textAlign: 'center', fontSize: 16, lineHeight: 24, marginBottom: 20 }]}>
+            I'm not planning on adding ads to this app, so the only way I'm keeping this app up is by you donating. Help me pay the bills.
+          </Text>
+
+          <Text style={[{ color: theme.secondaryText, textAlign: 'center', fontSize: 14, lineHeight: 20, marginBottom: 20, fontStyle: 'italic' }]}>
+            I'm doing this for the love of the game, idk how long this love will last tho
+          </Text>
+
+          <Text style={[{ color: theme.secondaryText, textAlign: 'center', fontSize: 14, lineHeight: 20, marginBottom: 20 }]}>
+            I have a record of publicly lying so, I might bloat the app with ads, you will never know
+          </Text>
+
+          <Pressable
+            style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border, marginTop: 20, width: '100%', maxWidth: 300 }]}
+            onPress={() => Linking.openURL('https://ko-fi.com/morgk')}
+          >
+            <View style={styles.settingsRowLeft}>
+              <Ionicons name="heart" size={24} color="#FF6B6B" />
+              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Donate on Ko-Fi</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
+          </Pressable>
+
+          <Text style={[{ color: theme.secondaryText, textAlign: 'center', fontSize: 14, lineHeight: 20, marginTop: 30 }]}>
+            Every donation helps keep Prana ad-free and supports continued development. Thank you for your support! ❤️
+          </Text>
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -2544,6 +2609,7 @@ function AppContent() {
             <RootStack.Screen name="AdvancedCatalog" component={AdvancedCatalogPage} />
             <RootStack.Screen name="SelfHostedCollection" component={SelfHostedCollectionPage} />
             <RootStack.Screen name="About" component={AboutPage} />
+            <RootStack.Screen name="Donate" component={DonatePage} />
             <RootStack.Screen
               name="Modules"
               children={(props) => (
