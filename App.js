@@ -25,6 +25,8 @@ import { colors } from './src/theme/colors';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import * as Haptics from 'expo-haptics';
+import { ModuleManager } from './src/services/ModuleManager';
+import { YTDL_MODULE_CODE } from './src/services/ytdlModule';
 
 // ... existing imports ...
 
@@ -156,10 +158,10 @@ function LibraryHomeScreen({ route, navigation }) {
       ref.measure((x, y, width, height, pageX, pageY) => {
         const MENU_HEIGHT = 220; // Approximate height of the menu
         const OFFSET = 60; // Overlap offset
-        
+
         // Default position (below with overlap)
         let finalY = pageY + height - OFFSET;
-        
+
         // If menu would go off screen bottom, show above instead
         if (finalY + MENU_HEIGHT > screenHeight - 20) { // 20px buffer
           finalY = pageY - MENU_HEIGHT + OFFSET;
@@ -547,7 +549,7 @@ function CachePage({ route, navigation }) {
     try {
       const free = await FileSystem.getFreeDiskStorageAsync();
       const total = await FileSystem.getTotalDiskCapacityAsync();
-      
+
       // Estimate app usage (documents folder)
       let appUsed = 0;
       try {
@@ -588,15 +590,15 @@ function CachePage({ route, navigation }) {
       'Are you sure you want to delete all music, artists, and settings? This action cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Delete', 
-          style: 'destructive', 
+        {
+          text: 'Delete',
+          style: 'destructive',
           onPress: () => {
             if (clearAllData) {
               clearAllData();
               navigation.goBack();
             }
-          } 
+          }
         }
       ]
     );
@@ -616,17 +618,17 @@ function CachePage({ route, navigation }) {
       <ScrollView style={{ flex: 1 }}>
         <View style={styles.settingsSection}>
           <Text style={[styles.sectionHeader, { color: theme.primaryText, marginBottom: 20 }]}>Library Stats</Text>
-          
+
           <View style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
             <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Songs</Text>
             <Text style={{ color: theme.secondaryText, fontSize: 16 }}>{library?.length || 0}</Text>
           </View>
-          
+
           <View style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
             <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Albums</Text>
             <Text style={{ color: theme.secondaryText, fontSize: 16 }}>{libraryAlbums?.length || 0}</Text>
           </View>
-          
+
           <View style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
             <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Artists</Text>
             <Text style={{ color: theme.secondaryText, fontSize: 16 }}>{libraryArtists?.length || 0}</Text>
@@ -635,7 +637,7 @@ function CachePage({ route, navigation }) {
 
         <View style={styles.settingsSection}>
           <Text style={[styles.sectionHeader, { color: theme.primaryText, marginBottom: 20 }]}>Device Storage</Text>
-          
+
           <View style={[styles.settingsRow, { backgroundColor: theme.card, flexDirection: 'column', alignItems: 'flex-start', gap: 12 }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
               <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Prana</Text>
@@ -644,38 +646,38 @@ function CachePage({ route, navigation }) {
 
             <View style={{ height: 8, width: '100%', backgroundColor: theme.border, borderRadius: 4, overflow: 'hidden', flexDirection: 'row' }}>
               {/* App Usage */}
-              <View 
-                style={{ 
-                  height: '100%', 
-                  width: `${percentages.app}%`, 
+              <View
+                style={{
+                  height: '100%',
+                  width: `${percentages.app}%`,
                   backgroundColor: theme.primaryText,
-                }} 
+                }}
               />
               {/* Other Usage */}
-              <View 
-                style={{ 
-                  height: '100%', 
-                  width: `${percentages.other}%`, 
+              <View
+                style={{
+                  height: '100%',
+                  width: `${percentages.other}%`,
                   backgroundColor: theme.secondaryText,
                   opacity: 0.3
-                }} 
+                }}
               />
             </View>
-            
+
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
-               <View style={{ flexDirection: 'row', gap: 12 }}>
-                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.primaryText }} />
-                    <Text style={{ color: theme.secondaryText, fontSize: 12 }}>Prana</Text>
-                 </View>
-                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.secondaryText, opacity: 0.3 }} />
-                    <Text style={{ color: theme.secondaryText, fontSize: 12 }}>Other</Text>
-                 </View>
-               </View>
-               <Text style={{ color: theme.secondaryText, fontSize: 12 }}>
-                 Free: {formatBytes(storageInfo.free)}
-               </Text>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.primaryText }} />
+                  <Text style={{ color: theme.secondaryText, fontSize: 12 }}>Prana</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.secondaryText, opacity: 0.3 }} />
+                  <Text style={{ color: theme.secondaryText, fontSize: 12 }}>Other</Text>
+                </View>
+              </View>
+              <Text style={{ color: theme.secondaryText, fontSize: 12 }}>
+                Free: {formatBytes(storageInfo.free)}
+              </Text>
             </View>
           </View>
         </View>
@@ -685,7 +687,7 @@ function CachePage({ route, navigation }) {
             style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border, justifyContent: 'center' }]}
             onPress={handleClearData}
           >
-             <Text style={{ color: theme.error, fontSize: 17, fontWeight: '600' }}>Clear All Data</Text>
+            <Text style={{ color: theme.error, fontSize: 17, fontWeight: '600' }}>Clear All Data</Text>
           </Pressable>
           <Text style={{ paddingHorizontal: 16, color: theme.secondaryText, fontSize: 12, marginTop: 8, textAlign: 'center' }}>
             This will delete all downloaded music, imported files, and reset your library.
@@ -711,8 +713,8 @@ function AppearancePage({ route, navigation }) {
       themeRowRef.current.measure((x, y, width, height, pageX, pageY) => {
         const MENU_HEIGHT = 180; // Approximate height
         // Align vertically with the row, slightly overlapping or below
-        let finalY = pageY + 10; 
-        
+        let finalY = pageY + 10;
+
         // Check bottom overflow
         if (finalY + MENU_HEIGHT > screenHeight - 20) {
           finalY = pageY - MENU_HEIGHT + 20;
@@ -723,7 +725,7 @@ function AppearancePage({ route, navigation }) {
         // Track menu uses: left: menuPosition.x (which is pageX).
         // Let's stick to pageX to align with the start of the row.
         setMenuPosition({ x: pageX + 20, y: finalY });
-        
+
         setShowThemeMenu(true);
         Animated.spring(menuAnim, {
           toValue: 1,
@@ -758,7 +760,7 @@ function AppearancePage({ route, navigation }) {
       <ScrollView style={{ flex: 1 }}>
         <View style={styles.settingsSection}>
           <Text style={[styles.sectionHeader, { color: theme.primaryText, marginBottom: 20 }]}>Display</Text>
-          
+
           <Pressable
             ref={themeRowRef}
             style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
@@ -779,40 +781,40 @@ function AppearancePage({ route, navigation }) {
       {/* Theme Context Menu */}
       {showThemeMenu && (
         <>
-           <Pressable style={styles.transparentBackdrop} onPress={closeThemeMenu} />
-           <Animated.View 
-             style={[
-               styles.albumContextMenu, 
-               { 
-                 width: 250, 
-                 backgroundColor: theme.card, 
-                 borderColor: theme.border,
-                 position: 'absolute',
-                 left: menuPosition.x,
-                 top: menuPosition.y,
-                 opacity: menuAnim,
-                 transform: [{
-                   scale: menuAnim.interpolate({
-                     inputRange: [0, 1],
-                     outputRange: [0.95, 1],
-                   })
-                 }]
-               }
-             ]}
-           >
-             <Pressable style={styles.contextMenuItem} onPress={closeThemeMenu}>
-               <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Light</Text>
-               <Ionicons name="checkmark" size={20} color={theme.accent} />
-             </Pressable>
-             <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
-             <Pressable style={styles.contextMenuItem} disabled={true}>
-               <Text style={[styles.contextMenuText, { color: theme.secondaryText, opacity: 0.5 }]}>Dark</Text>
-             </Pressable>
-             <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
-             <Pressable style={styles.contextMenuItem} disabled={true}>
-               <Text style={[styles.contextMenuText, { color: theme.secondaryText, opacity: 0.5 }]}>Auto</Text>
-             </Pressable>
-           </Animated.View>
+          <Pressable style={styles.transparentBackdrop} onPress={closeThemeMenu} />
+          <Animated.View
+            style={[
+              styles.albumContextMenu,
+              {
+                width: 250,
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+                position: 'absolute',
+                left: menuPosition.x,
+                top: menuPosition.y,
+                opacity: menuAnim,
+                transform: [{
+                  scale: menuAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.95, 1],
+                  })
+                }]
+              }
+            ]}
+          >
+            <Pressable style={styles.contextMenuItem} onPress={closeThemeMenu}>
+              <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Light</Text>
+              <Ionicons name="checkmark" size={20} color={theme.accent} />
+            </Pressable>
+            <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
+            <Pressable style={styles.contextMenuItem} disabled={true}>
+              <Text style={[styles.contextMenuText, { color: theme.secondaryText, opacity: 0.5 }]}>Dark</Text>
+            </Pressable>
+            <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
+            <Pressable style={styles.contextMenuItem} disabled={true}>
+              <Text style={[styles.contextMenuText, { color: theme.secondaryText, opacity: 0.5 }]}>Auto</Text>
+            </Pressable>
+          </Animated.View>
         </>
       )}
     </View>
@@ -974,9 +976,9 @@ function AboutPage({ route, navigation }) {
       </View>
 
       <View style={{ flex: 1, padding: 24, alignItems: 'center', justifyContent: 'center' }}>
-        <Image 
-          source={require('./assets/adaptive-icon.png')} 
-          style={{ width: 120, height: 120, marginBottom: 24, borderRadius: 24 }} 
+        <Image
+          source={require('./assets/adaptive-icon.png')}
+          style={{ width: 120, height: 120, marginBottom: 24, borderRadius: 24 }}
         />
         <Text style={[styles.title, { color: theme.primaryText, marginBottom: 16, textAlign: 'center' }]}>Prana</Text>
         <Text style={[styles.secondaryText, { color: theme.secondaryText, textAlign: 'center', fontSize: 16, lineHeight: 24 }]}>
@@ -991,6 +993,15 @@ function AppContent() {
   const colorScheme = useColorScheme();
   const theme = colors[colorScheme] || colors.dark;
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    const initModules = async () => {
+      await ModuleManager.init();
+      // Auto-update YTDL module to latest version
+      await ModuleManager.installModule(YTDL_MODULE_CODE);
+    };
+    initModules();
+  }, []);
 
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -1084,15 +1095,15 @@ function AppContent() {
     library.forEach((track) => {
       // Determine grouping artist: use albumArtist if available, otherwise use artist (stripped of features)
       let groupingArtist = track.albumArtist;
-      
+
       if (!groupingArtist) {
-          const rawArtist = (track.artist && track.artist.name) || track.artist || 'Unknown Artist';
-          if (typeof rawArtist === 'string') {
-             // Strip features to group under main artist
-             groupingArtist = rawArtist.split(/\s+(?:feat\.?|ft\.?|featuring|with)\s+/i)[0].trim();
-          } else {
-             groupingArtist = 'Unknown Artist';
-          }
+        const rawArtist = (track.artist && track.artist.name) || track.artist || 'Unknown Artist';
+        if (typeof rawArtist === 'string') {
+          // Strip features to group under main artist
+          groupingArtist = rawArtist.split(/\s+(?:feat\.?|ft\.?|featuring|with)\s+/i)[0].trim();
+        } else {
+          groupingArtist = 'Unknown Artist';
+        }
       }
 
       const albumName = track?.album?.trim() || 'Unknown Album';
@@ -1113,13 +1124,13 @@ function AppContent() {
 
       const entry = albumMap.get(key);
       entry.tracks.push(track);
-      
+
       // Update timestamps
       if (!entry.lastActivity || (track.dateAdded && track.dateAdded > entry.lastActivity)) {
-          entry.lastActivity = track.dateAdded || 0;
+        entry.lastActivity = track.dateAdded || 0;
       }
       if (track.lastPlayed && track.lastPlayed > entry.lastActivity) {
-          entry.lastActivity = track.lastPlayed;
+        entry.lastActivity = track.lastPlayed;
       }
 
       if (!entry.artwork) {
@@ -1163,10 +1174,13 @@ function AppContent() {
 
   // Tidal streaming toggle for unowned tracks
   const [useTidalForUnowned, setUseTidalForUnowned] = useState(false);
+  const [modules, setModules] = useState({
+    tidal: { enabled: true, name: 'Tidal Music' }
+  });
   const [shouldAutoPlay, setShouldAutoPlay] = useState(true);
   const queueNotificationTimer = useRef(null);
   const queueNotificationAnim = useRef(new Animated.Value(0)).current;
-  const miniPlayerAnim = useRef(new Animated.Value(0)).current;
+
 
   const loadLibrary = async () => {
     try {
@@ -1225,6 +1239,9 @@ function AppContent() {
         if (settings.useTidalForUnowned !== undefined) {
           setUseTidalForUnowned(settings.useTidalForUnowned);
         }
+        if (settings.modules) {
+          setModules(settings.modules);
+        }
       }
     } catch (e) {
       console.warn('Failed to load settings', e);
@@ -1237,7 +1254,7 @@ function AppContent() {
       if (fileInfo.exists) {
         const json = await FileSystem.readAsStringAsync(PLAYER_STATE_FILE);
         const state = JSON.parse(json || '{}');
-        
+
         if (state.currentTrack) {
           // Don't auto-play when restoring session
           setShouldAutoPlay(false);
@@ -1270,9 +1287,16 @@ function AppContent() {
     }
   }, [currentTrack, currentQueue, currentQueueIndex]);
 
-  const saveSettings = async (newSettings) => {
+  const saveSettings = async (partialSettings) => {
     try {
-      await FileSystem.writeAsStringAsync(SETTINGS_FILE, JSON.stringify(newSettings));
+      let currentSettings = {};
+      const fileInfo = await FileSystem.getInfoAsync(SETTINGS_FILE);
+      if (fileInfo.exists) {
+        const json = await FileSystem.readAsStringAsync(SETTINGS_FILE);
+        currentSettings = JSON.parse(json || '{}');
+      }
+      const updatedSettings = { ...currentSettings, ...partialSettings };
+      await FileSystem.writeAsStringAsync(SETTINGS_FILE, JSON.stringify(updatedSettings));
     } catch (e) {
       console.warn('Failed to save settings', e);
     }
@@ -1286,7 +1310,7 @@ function AppContent() {
       setAlbums([]);
       setTracks([]);
       setArtists([]);
-      
+
       // Delete the library folder (metadata)
       await FileSystem.deleteAsync(LIBRARY_DIR, { idempotent: true });
       await FileSystem.makeDirectoryAsync(LIBRARY_DIR, { intermediates: true });
@@ -1295,14 +1319,14 @@ function AppContent() {
       const files = await FileSystem.readDirectoryAsync(FileSystem.documentDirectory);
       for (const file of files) {
         if (file !== 'library' && file !== 'RCTAsyncLocalStorage_V1') { // Skip system/library folders
-           const fileUri = FileSystem.documentDirectory + file;
-           const info = await FileSystem.getInfoAsync(fileUri);
-           if (!info.isDirectory) {
-             await FileSystem.deleteAsync(fileUri, { idempotent: true });
-           }
+          const fileUri = FileSystem.documentDirectory + file;
+          const info = await FileSystem.getInfoAsync(fileUri);
+          if (!info.isDirectory) {
+            await FileSystem.deleteAsync(fileUri, { idempotent: true });
+          }
         }
       }
-      
+
       Alert.alert('Success', 'All data has been cleared.');
     } catch (e) {
       console.warn('Failed to clear data', e);
@@ -1313,6 +1337,20 @@ function AppContent() {
   const toggleTidalForUnowned = async (value) => {
     setUseTidalForUnowned(value);
     await saveSettings({ useTidalForUnowned: value });
+  };
+
+  const toggleModule = async (moduleId) => {
+    setModules(prev => {
+      const next = {
+        ...prev,
+        [moduleId]: {
+          ...prev[moduleId],
+          enabled: !prev[moduleId].enabled
+        }
+      };
+      saveSettings({ modules: next });
+      return next;
+    });
   };
 
   const savePlaylists = async (newPlaylists) => {
@@ -1351,19 +1389,19 @@ function AppContent() {
     setPlaylists((prev) => {
       const next = prev.map((p) => {
         if (p.id === playlistId) {
-            const trackExists = p.tracks && p.tracks.some(t => 
-                (t.uri && track.uri && t.uri === track.uri) || 
-                (t.id && track.id && t.id === track.id) ||
-                (t.name === track.name && (t.artist === track.artist || t.artist?.name === track.artist?.name))
-            );
-            
-            if (trackExists) return p;
+          const trackExists = p.tracks && p.tracks.some(t =>
+            (t.uri && track.uri && t.uri === track.uri) ||
+            (t.id && track.id && t.id === track.id) ||
+            (t.name === track.name && (t.artist === track.artist || t.artist?.name === track.artist?.name))
+          );
 
-            return {
-                ...p,
-                tracks: [...(p.tracks || []), track],
-                updatedAt: new Date().toISOString(),
-            };
+          if (trackExists) return p;
+
+          return {
+            ...p,
+            tracks: [...(p.tracks || []), track],
+            updatedAt: new Date().toISOString(),
+          };
         }
         return p;
       });
@@ -1413,11 +1451,11 @@ function AppContent() {
     try {
       const safeName = encodeURIComponent(originalName || track.name || `track-${Date.now()}`);
       let destUri = null;
-      
+
       if (sourceUri) {
-          destUri = `${LIBRARY_DIR}/${safeName}`;
-          // Copy the picked file into our app library dir so it survives picker cache cleanup
-          await FileSystem.copyAsync({ from: sourceUri, to: destUri });
+        destUri = `${LIBRARY_DIR}/${safeName}`;
+        // Copy the picked file into our app library dir so it survives picker cache cleanup
+        await FileSystem.copyAsync({ from: sourceUri, to: destUri });
       }
 
       const entry = {
@@ -1430,14 +1468,14 @@ function AppContent() {
         // avoid duplicates by uri if uri exists, or by id/name if remote
         let filtered;
         if (entry.uri) {
-            filtered = prev.filter((t) => t.uri !== entry.uri);
+          filtered = prev.filter((t) => t.uri !== entry.uri);
         } else {
-            // For remote tracks without URI yet, try to dedupe by name+artist
-            filtered = prev.filter(t => 
-                !((t.name === entry.name) && (t.artist === entry.artist || t.artist?.name === entry.artist?.name))
-            );
+          // For remote tracks without URI yet, try to dedupe by name+artist
+          filtered = prev.filter(t =>
+            !((t.name === entry.name) && (t.artist === entry.artist || t.artist?.name === entry.artist?.name))
+          );
         }
-        
+
         const next = [...filtered, entry];
         saveLibrary(next);
         return next;
@@ -1479,10 +1517,10 @@ function AppContent() {
 
   const toggleFavorite = (track) => {
     if (!track) return;
-    
+
     setLibrary((prev) => {
-      const existingIndex = prev.findIndex(t => 
-        (t.uri && track.uri && t.uri === track.uri) || 
+      const existingIndex = prev.findIndex(t =>
+        (t.uri && track.uri && t.uri === track.uri) ||
         (t.name === track.name && (t.artist === track.artist || t.artist?.name === track.artist?.name))
       );
 
@@ -1511,8 +1549,8 @@ function AppContent() {
   // Derived state for current track favorite status
   const isCurrentTrackFavorite = useMemo(() => {
     if (!currentTrack || !library) return false;
-    const found = library.find(t => 
-      (t.uri && currentTrack.uri && t.uri === currentTrack.uri) || 
+    const found = library.find(t =>
+      (t.uri && currentTrack.uri && t.uri === currentTrack.uri) ||
       (t.name === currentTrack.name && (t.artist === currentTrack.artist || t.artist?.name === currentTrack.artist?.name))
     );
     return found ? !!found.favorite : false;
@@ -1725,29 +1763,19 @@ function AppContent() {
   const [currentRoute, setCurrentRoute] = useState('MainTabs');
   const [tabBarAnim] = useState(new Animated.Value(0)); // 0 = visible, 1 = hidden
 
-  // Animate tab bar when route changes
+  // Animate tab bar when route changes or player expands
   useEffect(() => {
-    const isSettingsPage = ['Settings', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules'].includes(currentRoute);
+    const isSettingsPage = ['Settings', 'Appearance', 'Cache', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules', 'ImportSpotifyPlaylist', 'About'].includes(currentRoute);
+    const shouldHide = isSettingsPage || isPlayerExpanded;
+
     Animated.timing(tabBarAnim, {
-      toValue: isSettingsPage ? 1 : 0,
+      toValue: shouldHide ? 1 : 0,
       duration: 300,
       useNativeDriver: true,
     }).start();
-  }, [currentRoute]);
+  }, [currentRoute, isPlayerExpanded]);
 
-  // Animate mini player appearance
-  useEffect(() => {
-    // Hide mini player on settings pages or when player is expanded
-    const isSettingsPage = ['Settings', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules'].includes(currentRoute);
-    const shouldShow = currentTrack && !isPlayerExpanded && !isSettingsPage;
-    
-    Animated.spring(miniPlayerAnim, {
-      toValue: shouldShow ? 1 : 0,
-      useNativeDriver: true,
-      tension: 100,
-      friction: 10,
-    }).start();
-  }, [currentTrack, isPlayerExpanded, currentRoute]);
+
 
   const openArtistPage = (artist) => {
     navigationRef.navigate('Artist', {
@@ -1783,31 +1811,32 @@ function AppContent() {
   };
 
   const updateTrackLastPlayed = (track) => {
-      if (!track) return;
-      setLibrary((prev) => {
-          let found = false;
-          const next = prev.map(t => {
-              if ((t.uri && track.uri && t.uri === track.uri) || 
-                  (t.name === track.name && (t.artist === track.artist || t.artist?.name === track.artist))) {
-                  found = true;
-                  return { ...t, lastPlayed: Date.now() };
-              }
-              return t;
-          });
-          
-          if (found) {
-              saveLibrary(next);
-              return next;
-          }
-          return prev;
+    if (!track) return;
+    setLibrary((prev) => {
+      let found = false;
+      const next = prev.map(t => {
+        if ((t.uri && track.uri && t.uri === track.uri) ||
+          (t.name === track.name && (t.artist === track.artist || t.artist?.name === track.artist))) {
+          found = true;
+          return { ...t, lastPlayed: Date.now() };
+        }
+        return t;
       });
+
+      if (found) {
+        saveLibrary(next);
+        return next;
+      }
+      return prev;
+    });
   };
 
   const openTrackPlayer = (track, queue = null, index = 0, expandPlayer = true) => {
     if (!track) return;
-    
+
     // Check if modules are disabled and track is not owned
-    if (!useTidalForUnowned) {
+    const isTidalEnabled = modules?.tidal?.enabled ?? true;
+    if (!useTidalForUnowned || !isTidalEnabled) {
       // Check if track is owned (has isLocal flag or exists in library)
       const isOwned = track.isLocal || library.some(libTrack => {
         const trackName = (track.name || '').toLowerCase().trim();
@@ -1823,7 +1852,7 @@ function AppContent() {
         return; // Prevent playback
       }
     }
-    
+
     // Update last played
     updateTrackLastPlayed(track);
 
@@ -2402,268 +2431,213 @@ function AppContent() {
               gestureEnabled: true,
             }}
           >
-          <RootStack.Screen name="MainTabs">
-            {() => {
-              if (currentTab === 'home') return renderHomeTab();
-              if (currentTab === 'search') return renderSearchTab();
-              if (currentTab === 'library') return renderLibraryTab();
-              return renderHomeTab();
-            }}
-          </RootStack.Screen>
-          <RootStack.Screen name="LibraryAlbum">
-            {(props) => (
-              <LibraryAlbumPage
-                {...props}
-                route={{
-                  ...props.route,
-                  params: {
-                    ...props.route.params,
-                    libraryAlbums,
-                    openArtistByName,
-                    deleteTrack,
-                    updateTrack,
-                    addToQueue,
-                    addToQueue,
-                    addAlbumToQueue,
-                    currentTrack,
-                    isPlaying: playerControls.isPlaying,
-                    togglePlay: playerControls.togglePlay,
-                    useTidalForUnowned,
-                    playlists,
-                    addTrackToPlaylist,
-                  },
-                }}
-              />
-            )}
-          </RootStack.Screen>
-          <RootStack.Screen name="Artist" component={ArtistPage} />
-          <RootStack.Screen name="Settings" component={SettingsPage} />
-          <RootStack.Screen name="Appearance" component={AppearancePage} />
-          <RootStack.Screen name="Cache" component={CachePage} />
-          <RootStack.Screen name="AdvancedCatalog" component={AdvancedCatalogPage} />
-          <RootStack.Screen name="SelfHostedCollection" component={SelfHostedCollectionPage} />
-          <RootStack.Screen name="About" component={AboutPage} />
-          <RootStack.Screen
-            name="Modules"
-            children={(props) => (
-              <ModulesPage
-                {...props}
-                route={{
-                  ...props.route,
-                  params: {
-                    ...props.route.params,
-                    openTrackPlayer,
-                    useTidalForUnowned,
-                    toggleTidalForUnowned,
-                  },
-                }}
-              />
-            )}
-          />
-          <RootStack.Screen name="LibraryArtists" component={LibraryArtists} />
-          <RootStack.Screen name="LibraryAlbums" component={LibraryAlbums} />
-          <RootStack.Screen name="LibrarySongs" component={LibrarySongs} />
-          <RootStack.Screen name="LibraryPlaylists" component={LibraryPlaylists} />
-          <RootStack.Screen name="PlaylistPage" component={PlaylistPage} />
-          <RootStack.Screen name="AddPlaylist" component={AddPlaylist} />
-          <RootStack.Screen name="ImportSpotifyPlaylist" component={ImportSpotifyPlaylist} />
-        </RootStack.Navigator>
-      </NavigationContainer>
+            <RootStack.Screen name="MainTabs">
+              {() => {
+                if (currentTab === 'home') return renderHomeTab();
+                if (currentTab === 'search') return renderSearchTab();
+                if (currentTab === 'library') return renderLibraryTab();
+                return renderHomeTab();
+              }}
+            </RootStack.Screen>
+            <RootStack.Screen name="LibraryAlbum">
+              {(props) => (
+                <LibraryAlbumPage
+                  {...props}
+                  route={{
+                    ...props.route,
+                    params: {
+                      ...props.route.params,
+                      libraryAlbums,
+                      openArtistByName,
+                      deleteTrack,
+                      updateTrack,
+                      addToQueue,
+                      addToQueue,
+                      addAlbumToQueue,
+                      currentTrack,
+                      isPlaying: playerControls.isPlaying,
+                      togglePlay: playerControls.togglePlay,
+                      useTidalForUnowned,
+                      playlists,
+                      addTrackToPlaylist,
+                    },
+                  }}
+                />
+              )}
+            </RootStack.Screen>
+            <RootStack.Screen name="Artist" component={ArtistPage} />
+            <RootStack.Screen name="Settings" component={SettingsPage} />
+            <RootStack.Screen name="Appearance" component={AppearancePage} />
+            <RootStack.Screen name="Cache" component={CachePage} />
+            <RootStack.Screen name="AdvancedCatalog" component={AdvancedCatalogPage} />
+            <RootStack.Screen name="SelfHostedCollection" component={SelfHostedCollectionPage} />
+            <RootStack.Screen name="About" component={AboutPage} />
+            <RootStack.Screen
+              name="Modules"
+              children={(props) => (
+                <ModulesPage
+                  {...props}
+                  route={{
+                    ...props.route,
+                    params: {
+                      ...props.route.params,
+                      openTrackPlayer,
+                      useTidalForUnowned,
+                      toggleTidalForUnowned,
+                      modules,
+                      toggleModule,
+                    },
+                  }}
+                />
+              )}
+            />
+            <RootStack.Screen name="LibraryArtists" component={LibraryArtists} />
+            <RootStack.Screen name="LibraryAlbums" component={LibraryAlbums} />
+            <RootStack.Screen name="LibrarySongs" component={LibrarySongs} />
+            <RootStack.Screen name="LibraryPlaylists" component={LibraryPlaylists} />
+            <RootStack.Screen name="PlaylistPage" component={PlaylistPage} />
+            <RootStack.Screen name="AddPlaylist" component={AddPlaylist} />
+            <RootStack.Screen name="ImportSpotifyPlaylist" component={ImportSpotifyPlaylist} />
+          </RootStack.Navigator>
+        </NavigationContainer>
 
-      {/* Queue Notification Banner */}
-      {queueNotification && (
-        <Animated.View
-          style={[
-            styles.queueNotification,
-            {
-              backgroundColor: theme.card,
-              borderColor: theme.border,
-              opacity: queueNotificationAnim,
-              transform: [
-                {
-                  translateY: queueNotificationAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [20, 0],
-                  }),
-                },
-              ],
-            }
-          ]}
-        >
-          <Ionicons 
-            name={queueNotification.type === 'error' ? 'alert-circle' : 'checkmark-circle'} 
-            size={20} 
-            color={queueNotification.type === 'error' ? theme.error : theme.primaryText} 
-          />
-          <Text style={[styles.queueNotificationText, { color: theme.primaryText }]} numberOfLines={1}>
-            {queueNotification.message}
-          </Text>
-        </Animated.View>
-      )}
-
-
-      {/* Mini player when a track is active but full player is minimized */}
-      {currentTrack && (() => {
-        const isSettingsPage = ['Settings', 'Appearance', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules', 'ImportSpotifyPlaylist', 'About'].includes(currentRoute);
-        const isVisible = !isPlayerExpanded && !isSettingsPage;
-        const miniImageUrl = pickImageUrl(currentTrack.image, 'large');
-        
-        return (
+        {/* Queue Notification Banner */}
+        {queueNotification && (
           <Animated.View
-            pointerEvents={isVisible ? 'auto' : 'none'}
             style={[
-              styles.miniPlayer,
+              styles.queueNotification,
               {
                 backgroundColor: theme.card,
-                opacity: miniPlayerAnim,
+                borderColor: theme.border,
+                opacity: queueNotificationAnim,
                 transform: [
                   {
-                    translateY: miniPlayerAnim.interpolate({
+                    translateY: queueNotificationAnim.interpolate({
                       inputRange: [0, 1],
-                      outputRange: [100, 0],
+                      outputRange: [20, 0],
                     }),
                   },
                 ],
               }
             ]}
           >
-            <Pressable
-              style={styles.miniMainArea}
-              onPress={() => setIsPlayerExpanded(true)}
-            >
-              {miniImageUrl ? (
-                <Image source={{ uri: miniImageUrl }} style={styles.miniArtwork} />
-              ) : (
-                <View style={[styles.miniArtwork, { backgroundColor: theme.inputBackground }]} />
-              )}
-              <View style={styles.miniTextContainer}>
-                <Text style={[styles.miniTitle, { color: theme.primaryText }]} numberOfLines={1}>
-                  {currentTrack.name}
-                </Text>
-                <Text style={[styles.miniArtist, { color: theme.secondaryText }]} numberOfLines={1}>
-                  {getArtistName(currentTrack.artist)}
-                </Text>
-              </View>
-            </Pressable>
-            <Pressable
-              style={styles.miniPlayButton}
-              onPress={() => {
-                if (playerControls?.togglePlay) {
-                  playerControls.togglePlay();
-                }
-              }}
-              hitSlop={10}
-            >
-              <Ionicons
-                name={playerControls?.isPlaying ? 'pause' : 'play'}
-                size={22}
-                color={theme.primaryText}
-              />
-            </Pressable>
+            <Ionicons
+              name={queueNotification.type === 'error' ? 'alert-circle' : 'checkmark-circle'}
+              size={20}
+              color={queueNotification.type === 'error' ? theme.error : theme.primaryText}
+            />
+            <Text style={[styles.queueNotificationText, { color: theme.primaryText }]} numberOfLines={1}>
+              {queueNotification.message}
+            </Text>
           </Animated.View>
-        );
-      })()}
+        )}
 
-      {/* Bottom tab bar - animated slide down */}
-      <Animated.View
-        pointerEvents={['Settings', 'Appearance', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules', 'ImportSpotifyPlaylist', 'About'].includes(currentRoute) ? 'none' : 'auto'}
-        style={[
-          styles.tabBar,
-          {
-            backgroundColor: theme.card,
-            borderTopColor: theme.border,
-            paddingBottom: Math.max(8, insets.bottom + 2),
-            transform: [{
-              translateY: tabBarAnim.interpolate({
+
+
+
+        {/* Bottom tab bar - animated slide down */}
+        <Animated.View
+          pointerEvents={['Settings', 'Appearance', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules', 'ImportSpotifyPlaylist', 'About'].includes(currentRoute) ? 'none' : 'auto'}
+          style={[
+            styles.tabBar,
+            {
+              backgroundColor: theme.card,
+              borderTopColor: theme.border,
+              paddingBottom: Math.max(8, insets.bottom + 2),
+              transform: [{
+                translateY: tabBarAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 100], // Slide down 100px when hiding
+                })
+              }],
+              opacity: tabBarAnim.interpolate({
                 inputRange: [0, 1],
-                outputRange: [0, 100], // Slide down 100px when hiding
+                outputRange: [1, 0], // Fade out when hiding
               })
-            }],
-            opacity: tabBarAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [1, 0], // Fade out when hiding
-            })
-          }
-        ]}
-      >
-        <Pressable
-          style={styles.tabItem}
-          onPress={() => handleTabPress('home')}
+            }
+          ]}
         >
-          <Ionicons
-            name={currentTab === 'home' ? 'home' : 'home-outline'}
-            size={22}
-            color={currentTab === 'home' ? theme.primaryText : theme.secondaryText}
-            style={styles.tabIcon}
-          />
-          <Text
-            style={[
-              styles.tabLabel,
-              { color: currentTab === 'home' ? theme.primaryText : theme.secondaryText },
-            ]}
+          <Pressable
+            style={styles.tabItem}
+            onPress={() => handleTabPress('home')}
           >
-            Home
-          </Text>
-        </Pressable>
+            <Ionicons
+              name={currentTab === 'home' ? 'home' : 'home-outline'}
+              size={22}
+              color={currentTab === 'home' ? theme.primaryText : theme.secondaryText}
+              style={styles.tabIcon}
+            />
+            <Text
+              style={[
+                styles.tabLabel,
+                { color: currentTab === 'home' ? theme.primaryText : theme.secondaryText },
+              ]}
+            >
+              Home
+            </Text>
+          </Pressable>
 
-        <Pressable
-          style={styles.tabItem}
-          onPress={() => handleTabPress('search')}
-        >
-          <Ionicons
-            name={currentTab === 'search' ? 'search' : 'search-outline'}
-            size={22}
-            color={currentTab === 'search' ? theme.primaryText : theme.secondaryText}
-            style={styles.tabIcon}
-          />
-          <Text
-            style={[
-              styles.tabLabel,
-              { color: currentTab === 'search' ? theme.primaryText : theme.secondaryText },
-            ]}
+          <Pressable
+            style={styles.tabItem}
+            onPress={() => handleTabPress('search')}
           >
-            Search
-          </Text>
-        </Pressable>
+            <Ionicons
+              name={currentTab === 'search' ? 'search' : 'search-outline'}
+              size={22}
+              color={currentTab === 'search' ? theme.primaryText : theme.secondaryText}
+              style={styles.tabIcon}
+            />
+            <Text
+              style={[
+                styles.tabLabel,
+                { color: currentTab === 'search' ? theme.primaryText : theme.secondaryText },
+              ]}
+            >
+              Search
+            </Text>
+          </Pressable>
 
-        <Pressable
-          style={styles.tabItem}
-          onPress={() => handleTabPress('library')}
-        >
-          <Ionicons
-            name={currentTab === 'library' ? 'library' : 'library-outline'}
-            size={22}
-            color={currentTab === 'library' ? theme.primaryText : theme.secondaryText}
-            style={styles.tabIcon}
-          />
-          <Text
-            style={[
-              styles.tabLabel,
-              { color: currentTab === 'library' ? theme.primaryText : theme.secondaryText },
-            ]}
+          <Pressable
+            style={styles.tabItem}
+            onPress={() => handleTabPress('library')}
           >
-            Library
-          </Text>
-        </Pressable>
-      </Animated.View>
+            <Ionicons
+              name={currentTab === 'library' ? 'library' : 'library-outline'}
+              size={22}
+              color={currentTab === 'library' ? theme.primaryText : theme.secondaryText}
+              style={styles.tabIcon}
+            />
+            <Text
+              style={[
+                styles.tabLabel,
+                { color: currentTab === 'library' ? theme.primaryText : theme.secondaryText },
+              ]}
+            >
+              Library
+            </Text>
+          </Pressable>
+        </Animated.View>
 
-      {/* Full-screen Song Player */}
-      {currentTrack && (
-        <SongPlayer
-          track={currentTrack}
-          queue={currentQueue}
-          queueIndex={currentQueueIndex}
-          onClose={minimizePlayer}
-          onTrackChange={handleTrackChange}
-          onQueueReorder={handleQueueReorder}
-          theme={theme}
-          setPlayerControls={setPlayerControls}
-          isVisible={isPlayerExpanded}
-          toggleFavorite={toggleFavorite}
-          isFavorite={isCurrentTrackFavorite}
-          shouldPlay={shouldAutoPlay}
-        />
-      )}
+        {/* Full-screen Song Player */}
+        {currentTrack && (
+          <SongPlayer
+            track={currentTrack}
+            queue={currentQueue}
+            queueIndex={currentQueueIndex}
+            onClose={minimizePlayer}
+            onOpen={() => setIsPlayerExpanded(true)}
+            onTrackChange={handleTrackChange}
+            onQueueReorder={handleQueueReorder}
+            theme={theme}
+            setPlayerControls={setPlayerControls}
+            isVisible={isPlayerExpanded}
+            toggleFavorite={toggleFavorite}
+            isFavorite={isCurrentTrackFavorite}
+            shouldPlay={shouldAutoPlay}
+            zIndex={isPlayerExpanded ? 2000 : 1}
+            shouldHide={['Settings', 'Appearance', 'Cache', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules', 'ImportSpotifyPlaylist', 'About'].includes(currentRoute)}
+          />
+        )}
       </View>
     </DownloadProvider>
   );

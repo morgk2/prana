@@ -12,6 +12,7 @@ import {
   TextInput,
   FlatList,
   useWindowDimensions,
+  Alert,
 } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -149,7 +150,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
   const trackScaleAnims = useRef({});
   const [spotifyTracks, setSpotifyTracks] = useState([]);
   const [loadingSpotify, setLoadingSpotify] = useState(false);
-  const { activeDownloads, albumDownloads, downloadedTracks, handleDownloadTrack, startAlbumDownload } = useDownload();
+  const { activeDownloads, albumDownloads, downloadedTracks, recentDownloads, handleDownloadTrack, startAlbumDownload } = useDownload();
 
   // Album Menu State
   const [albumMenuVisible, setAlbumMenuVisible] = useState(false);
@@ -181,6 +182,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
         );
 
         const isDownloaded = downloadedTracks.has(track.id) || downloadedTracks.has(track.name);
+        const recentUri = recentDownloads ? (recentDownloads[track.id] || recentDownloads[track.name]) : null;
         
         // If local, return local track enriched with index/number
         if (localTrack || isDownloaded) {
@@ -193,7 +195,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
                        (album.artwork ? [{ '#text': album.artwork, size: 'extralarge' }] : []),
                 // If it was found in downloadedTracks but not libraryToCheck, force isLocal=true so it displays correctly
                 isLocal: true,
-                uri: baseTrack.uri || (isDownloaded ? 'file://downloaded' : undefined) // Placeholder URI if just downloaded
+                uri: recentUri || baseTrack.uri || (isDownloaded ? 'file://downloaded' : undefined) 
             };
         }
 
@@ -480,7 +482,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
   };
 
   // Handle playing unowned tracks via Tidal
-  const handleUnownedTrackPress = async (track) => {
+  const handleUnownedTrackPress = async (track, index, shouldQueueAlbum) => {
     if (!useTidalForUnowned) {
       console.log('[LibraryAlbumPage] Tidal streaming is disabled');
       return;
@@ -489,20 +491,20 @@ export default function LibraryAlbumPage({ route, navigation }) {
     try {
       console.log('[LibraryAlbumPage] Attempting to stream unowned track:', track.name);
 
-      // Find index in full list
-      const trackIndex = allTracks.findIndex(t => t.name === track.name);
-
       // Use the derived track object which already has metadata
       const enrichedTrack = {
-        ...allTracks[trackIndex !== -1 ? trackIndex : 0], // Fallback if not found
+        ...allTracks[index], // Use the index passed in
         isFetching: true,
       };
 
       console.log('[LibraryAlbumPage] Enriched track artist:', enrichedTrack.artist);
 
-      // Open player immediately with loading state AND full queue
+      const queue = shouldQueueAlbum ? allTracks : [enrichedTrack];
+      const qIndex = shouldQueueAlbum ? index : 0;
+
+      // Open player immediately with loading state
       if (onTrackPress) {
-        onTrackPress(enrichedTrack, allTracks, trackIndex !== -1 ? trackIndex : 0);
+        onTrackPress(enrichedTrack, queue, qIndex);
       }
 
       // Show loading state (optional - could add a loading indicator)
@@ -510,15 +512,51 @@ export default function LibraryAlbumPage({ route, navigation }) {
 
       // Check if we got a valid track (either has uri OR is a Tidal stream with tidalId)
       if (playableTrack && (playableTrack.uri || playableTrack.tidalId) && onTrackPress) {
-        // Update the track in the queue (optional, but player handles it via queue logic usually)
-        // But we should re-call play with the resolved track to update the current track state
-        onTrackPress(playableTrack, allTracks, trackIndex !== -1 ? trackIndex : 0);
+        // Update the track in the queue
+        // We must ensure the queue we pass matches what we intended
+        // If we didn't queue the album, we update the single track queue
+        // If we did, we update the current track but keep the album queue (SongPlayer handles updating current track metadata)
+        const updatedQueue = shouldQueueAlbum ? allTracks : [playableTrack];
+        onTrackPress(playableTrack, updatedQueue, qIndex);
       } else {
         console.warn('[LibraryAlbumPage] Could not find stream for track:', track.name);
       }
     } catch (error) {
       console.error('[LibraryAlbumPage] Error streaming track:', error);
     }
+  };
+
+  const confirmAndPlayTrack = (track, index, isLocal) => {
+    Alert.alert(
+        "Play Track",
+        "Add the rest of the album to the queue?",
+        [
+            {
+                text: "No",
+                onPress: () => {
+                    if (isLocal) {
+                        if (onTrackPress) onTrackPress(track, [track], 0);
+                    } else {
+                        handleUnownedTrackPress(track, index, false);
+                    }
+                }
+            },
+            {
+                text: "Yes",
+                onPress: () => {
+                     if (isLocal) {
+                        if (onTrackPress) onTrackPress(track, allTracks, index);
+                    } else {
+                        handleUnownedTrackPress(track, index, true);
+                    }
+                }
+            },
+            {
+                text: "Cancel",
+                style: "cancel"
+            }
+        ]
+    );
   };
 
 
@@ -685,11 +723,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
                     }}
                   >
                     <Pressable
-                      onPress={() => {
-                        if (onTrackPress) {
-                          onTrackPress(track, allTracks, index);
-                        }
-                      }}
+                      onPress={() => confirmAndPlayTrack(track, index, true)}
                       style={[styles.trackRow, { borderBottomColor: theme.border, backgroundColor: theme.background }]} // Ensure background color for swipeable
                     >
                       <View style={styles.trackNumberContainer}>
@@ -731,7 +765,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
                   </SwipeableTrackRow>
                 ) : (
                   <Pressable
-                    onPress={() => handleUnownedTrackPress(track)}
+                    onPress={() => confirmAndPlayTrack(track, index, false)}
                     disabled={!useTidalForUnowned}
                     style={[styles.trackRow, { borderBottomColor: theme.border }]}
                   >

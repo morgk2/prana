@@ -11,6 +11,7 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
   const [activeDownloads, setActiveDownloads] = useState({}); // { [trackId]: progress }
   const [albumDownloads, setAlbumDownloads] = useState({}); // { [albumKey]: { progress, total, completed } }
   const [downloadedTracks, setDownloadedTracks] = useState(new Set()); // Set of URIs or IDs
+  const [recentDownloads, setRecentDownloads] = useState({}); // { [trackId]: fileUri } - Map for immediate playback
 
   const handleDownloadTrack = async (track, albumKey = null) => {
     if (!useTidalForUnowned) return;
@@ -34,14 +35,27 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
 
       // 2. Download
       let streamUrl = playableTrack.uri;
-      const filename = `${playableTrack.artist} - ${playableTrack.name}.flac`.replace(/[^a-z0-9 \.\-_]/gi, '_');
       
+      // Determine file extension based on URL content
+      let extension = 'flac'; // Default for Tidal
+      if (streamUrl && (streamUrl.includes('.mp3') || streamUrl.includes('format=mp3'))) {
+          extension = 'mp3';
+      }
+      
+      const filename = `${playableTrack.artist} - ${playableTrack.name}.${extension}`.replace(/[^a-z0-9 \.\-_]/gi, '_');
+      
+      console.log('[DownloadContext] Destination:', filename, 'Ext:', extension);
+
       const performDownload = async (url) => {
         const fileUri = FileSystem.documentDirectory + filename;
         const downloadResumable = FileSystem.createDownloadResumable(
           url,
           fileUri,
-          {},
+          {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+          },
           (downloadProgress) => {
             const progress = downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite;
             setActiveDownloads(prev => ({ ...prev, [trackId]: progress }));
@@ -54,6 +68,20 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
       try {
         if (!streamUrl) throw new Error('No initial stream URL');
         downloadResult = await performDownload(streamUrl);
+        
+        // Verify download
+        const fileInfo = await FileSystem.getInfoAsync(downloadResult.uri);
+        console.log('[DownloadContext] Downloaded file info:', fileInfo);
+        
+        if (fileInfo.size < 1000) {
+             // Likely an error page
+             console.warn('[DownloadContext] Downloaded file is too small, likely an error page');
+             // Try to read it to see error
+             const content = await FileSystem.readAsStringAsync(downloadResult.uri);
+             console.warn('[DownloadContext] File content start:', content.substring(0, 200));
+             throw new Error('Downloaded file invalid (too small)');
+        }
+
       } catch (initialError) {
         console.warn('[DownloadContext] Retry fetch for:', track.name);
         const freshTrack = await getFreshTidalStream(playableTrack.tidalId);
@@ -77,13 +105,18 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
 
       await addToLibrary(trackToAdd, downloadResult.uri, filename);
       
-      // Mark as downloaded
+      // Mark as downloaded and save URI for immediate access
       setDownloadedTracks(prev => {
           const next = new Set(prev);
           next.add(trackId);
-          if (track.uri) next.add(track.uri); // Also add original URI if any
+          if (track.uri) next.add(track.uri); 
           return next;
       });
+      setRecentDownloads(prev => ({
+          ...prev,
+          [trackId]: downloadResult.uri,
+          [track.name]: downloadResult.uri // Fallback key
+      }));
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
@@ -153,6 +186,7 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
       activeDownloads,
       albumDownloads,
       downloadedTracks,
+      recentDownloads,
       handleDownloadTrack,
       startAlbumDownload
     }}>

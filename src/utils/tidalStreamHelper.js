@@ -3,7 +3,7 @@
  * Provides functionality to stream unowned tracks via Tidal
  */
 
-import { searchTracks, getTrackStreamUrl } from '../services/tidalApi';
+import { ModuleManager } from '../services/ModuleManager';
 import { getArtworkWithFallback } from './artworkFallback';
 import { getCachedTrack, saveToCache, removeFromCache, getCachedTrackByMetadata } from './tidalCache';
 
@@ -28,8 +28,8 @@ export async function findAndStreamTrack(trackName, artistName, albumName = null
 
         console.log('[Tidal Stream Helper] Searching for:', query, '(Track:', trackName, 'Artist:', artistName || 'N/A', ')');
 
-        // Search Tidal
-        const response = await searchTracks(query, 10); // Get top 10 results to increase chance of finding a working one
+        // Search via ModuleManager
+        const response = await ModuleManager.searchTracks(query, 10); // Get top 10 results
         const tracks = response.tracks || [];
 
         if (tracks.length === 0) {
@@ -47,11 +47,24 @@ export async function findAndStreamTrack(trackName, artistName, albumName = null
             candidates = tracks.filter(track => {
                 const trackArtist = (typeof track.artist === 'string' ? track.artist : track.artist?.name || '').toLowerCase();
                 const trackTitle = track.title.toLowerCase();
-                return trackArtist.includes(searchArtist) || trackTitle.includes(searchTitle); // Loose matching
+                // Require BOTH artist and title to match to avoid wrong songs from same artist
+                return trackArtist.includes(searchArtist) && trackTitle.includes(searchTitle); 
             });
 
-            // If no loose matches, revert to all tracks
-            if (candidates.length === 0) candidates = tracks;
+            // If no strict matches, try title match only (in case artist name varies e.g. "Feat.")
+            if (candidates.length === 0) {
+                 candidates = tracks.filter(track => {
+                    const trackTitle = track.title.toLowerCase();
+                    return trackTitle.includes(searchTitle);
+                 });
+            }
+
+            // If still no matches, DO NOT revert to all tracks (which often contains irrelevant results)
+            // This prevents playing "Gorgeous" when asking for "New Slaves"
+            if (candidates.length === 0) {
+                console.warn('[Tidal Stream Helper] No candidates matched the search criteria strictly');
+                return null; 
+            }
         }
 
         console.log(`[Tidal Stream Helper] Found ${candidates.length} candidates. Verifying streamability...`);
@@ -64,7 +77,7 @@ export async function findAndStreamTrack(trackName, artistName, albumName = null
                 console.log(`[Tidal Stream Helper] Verifying candidate: ${candidate.title} by ${candidate.artist} (ID: ${candidate.id})`);
 
                 // This will throw if no stream is available at any quality
-                const streamData = await getTrackStreamUrl(candidate.id, 'LOSSLESS');
+                const streamData = await ModuleManager.getTrackStreamUrl(candidate.id, 'LOSSLESS');
 
                 console.log('[Tidal Stream Helper] Verified streamable track:', candidate.title);
 
@@ -109,7 +122,7 @@ export async function findAndStreamTrack(trackName, artistName, albumName = null
 export async function getFreshTidalStream(tidalId) {
     try {
         console.log('[Tidal Stream Helper] Getting fresh stream for ID:', tidalId);
-        const streamData = await getTrackStreamUrl(tidalId, 'LOSSLESS');
+        const streamData = await ModuleManager.getTrackStreamUrl(tidalId, 'LOSSLESS');
         
         if (streamData && streamData.streamUrl) {
             // Get existing cache to preserve metadata if possible
