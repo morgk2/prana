@@ -7,13 +7,14 @@ import {
     ScrollView,
     Pressable,
     Animated,
-    Modal,
-    TextInput,
+    Alert,
+    ActivityIndicator,
 } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import SwipeableTrackRow from './SwipeableTrackRow';
+import { getPlayableTrack } from '../utils/tidalStreamHelper';
 import { useDownload } from '../context/DownloadContext';
 
 function pickImageUrl(images, preferredSize = 'large') {
@@ -48,7 +49,7 @@ export default function PlaylistPage({ route, navigation }) {
         return playlistFromList;
     }, [initialPlaylist, playlists]);
 
-    const { startAlbumDownload, albumDownloads, downloadedTracks } = useDownload();
+    const { startAlbumDownload, albumDownloads, downloadedTracks, activeDownloads, handleDownloadTrack, recentDownloads } = useDownload();
 
     const [contextMenuTrack, setContextMenuTrack] = useState(null);
     const [selectedTrackKey, setSelectedTrackKey] = useState(null);
@@ -62,6 +63,94 @@ export default function PlaylistPage({ route, navigation }) {
 
     const trackRefs = useRef({});
     const trackScaleAnims = useRef({});
+
+    const handleUnownedTrackPress = async (track, index, shouldQueuePlaylist) => {
+        if (!useTidalForUnowned) {
+            console.log('[PlaylistPage] Tidal streaming is disabled');
+            return;
+        }
+
+        try {
+            console.log('[PlaylistPage] Attempting to stream unowned track:', track.name);
+
+            const enrichedTrack = {
+                ...playlist.tracks[index],
+                isFetching: true,
+                artist: track.artist?.name || track.artist, // Ensure string artist
+                album: playlist.name,
+                image: track.image ? track.image : (playlist.image ? [{ '#text': playlist.image, size: 'extralarge' }] : [])
+            };
+
+            const queue = shouldQueuePlaylist ? playlist.tracks.map(t => ({
+                ...t,
+                artist: t.artist?.name || t.artist,
+                album: playlist.name,
+                image: t.image ? t.image : (playlist.image ? [{ '#text': playlist.image, size: 'extralarge' }] : [])
+            })) : [enrichedTrack];
+            
+            const qIndex = shouldQueuePlaylist ? index : 0;
+
+            if (onTrackPress) {
+                onTrackPress(enrichedTrack, queue, qIndex);
+            }
+
+            const playableTrack = await getPlayableTrack(enrichedTrack, useTidalForUnowned);
+
+            if (playableTrack && (playableTrack.uri || playableTrack.tidalId) && onTrackPress) {
+                const updatedQueue = shouldQueuePlaylist ? queue : [playableTrack];
+                onTrackPress(playableTrack, updatedQueue, qIndex);
+            } else {
+                console.warn('[PlaylistPage] Could not find stream for track:', track.name);
+            }
+        } catch (error) {
+            console.error('[PlaylistPage] Error streaming track:', error);
+        }
+    };
+
+    const confirmAndPlayTrack = (track, index, isLocal) => {
+        Alert.alert(
+            "Play Track",
+            "Add the rest of the playlist to the queue?",
+            [
+                {
+                    text: "No",
+                    onPress: () => {
+                        if (isLocal) {
+                            if (onTrackPress) onTrackPress(track, [track], 0);
+                        } else {
+                            handleUnownedTrackPress(track, index, false);
+                        }
+                    }
+                },
+                {
+                    text: "Yes",
+                    onPress: () => {
+                        if (isLocal) {
+                            if (addAlbumToQueue) {
+                                const remainingTracks = playlist.tracks.filter((_, idx) => idx !== index);
+                                const tracksToAdd = [track, ...remainingTracks];
+                                addAlbumToQueue(tracksToAdd, true);
+                            } else if (onTrackPress) {
+                                onTrackPress(track, playlist.tracks, index);
+                            }
+                        } else {
+                            if (addAlbumToQueue) {
+                                const remainingTracks = playlist.tracks.filter((_, idx) => idx !== index);
+                                const tracksToAdd = [track, ...remainingTracks];
+                                addAlbumToQueue(tracksToAdd, true);
+                            } else {
+                                handleUnownedTrackPress(track, index, true);
+                            }
+                        }
+                    }
+                },
+                {
+                    text: "Cancel",
+                    style: "cancel"
+                }
+            ]
+        );
+    };
 
     const openPlaylistMenu = () => {
         if (playlistMenuButtonRef.current) {
@@ -335,8 +424,12 @@ export default function PlaylistPage({ route, navigation }) {
                             (t.uri && track.uri && t.uri === track.uri) ||
                             (t.name === track.name && (t.artist?.name || t.artist) === (track.artist?.name || track.artist))
                         );
+                        
                         const isDownloaded = downloadedTracks.has(track.id) || downloadedTracks.has(track.name) || (track.uri && downloadedTracks.has(track.uri));
-                        const isImported = !!libraryTrack || isDownloaded;
+                        const recentUri = recentDownloads ? (recentDownloads[track.id] || recentDownloads[track.name]) : null;
+                        
+                        // Determine if track is local (either in library with file URI, or downloaded)
+                        const isLocal = (!!libraryTrack && libraryTrack.uri && libraryTrack.uri.startsWith('file://')) || isDownloaded || !!recentUri || (track.uri && track.uri.startsWith('file://'));
 
                         return (
                             <Animated.View
@@ -345,36 +438,65 @@ export default function PlaylistPage({ route, navigation }) {
                                 collapsable={false}
                                 style={{
                                     transform: [{ scale: trackScaleAnims.current[trackKey] }],
+                                    opacity: isLocal ? 1 : (useTidalForUnowned ? 0.7 : 0.5)
                                 }}
                             >
-                                <SwipeableTrackRow
-                                    theme={theme}
-                                    enabled={isImported}
-                                    onSwipeLeft={() => {
-                                        if (addToQueue) {
-                                            addToQueue(track);
-                                        }
-                                    }}
-                                >
-                                    <Pressable
-                                        onPress={() => {
-                                            if (isImported) {
-                                                if (addAlbumToQueue) {
-                                                    const remainingTracks = playlist.tracks.filter((_, idx) => idx !== index);
-                                                    const tracksToAdd = [track, ...remainingTracks];
-                                                    addAlbumToQueue(tracksToAdd, true);
-                                                } else if (onTrackPress) {
-                                                    onTrackPress(track, playlist.tracks, index);
-                                                }
+                                {isLocal ? (
+                                    <SwipeableTrackRow
+                                        theme={theme}
+                                        onSwipeLeft={() => {
+                                            if (addToQueue) {
+                                                addToQueue(track);
                                             }
                                         }}
-                                        onLongPress={() => isImported && openContextMenu(track, trackKey)}
+                                    >
+                                        <Pressable
+                                            onPress={() => confirmAndPlayTrack(track, index, true)}
+                                            onLongPress={() => openContextMenu(track, trackKey)}
+                                            style={[
+                                                styles.trackRow,
+                                                {
+                                                    borderBottomColor: theme.border,
+                                                    backgroundColor: theme.background,
+                                                }
+                                            ]}
+                                        >
+                                            {/* Track Artwork */}
+                                            {imageUrl ? (
+                                                <Image source={{ uri: imageUrl }} style={styles.trackArtwork} />
+                                            ) : (
+                                                <View style={[styles.trackArtwork, { backgroundColor: theme.card }]}>
+                                                    <Ionicons name="musical-note" size={20} color={theme.secondaryText} />
+                                                </View>
+                                            )}
+
+                                            <View style={styles.trackInfo}>
+                                                <Text style={[styles.trackName, { color: theme.primaryText }]} numberOfLines={1}>
+                                                    {track.name}
+                                                </Text>
+                                                <Text style={[styles.trackArtist, { color: theme.secondaryText }]} numberOfLines={1}>
+                                                    {track.artist?.name || track.artist || 'Unknown Artist'}
+                                                </Text>
+                                            </View>
+
+                                            {libraryTrack?.favorite ? (
+                                                <Ionicons name="star" size={16} color={theme.primaryText} style={{ marginRight: 8 }} />
+                                            ) : null}
+
+                                            <Pressable onPress={() => openContextMenu(track, trackKey)} hitSlop={10}>
+                                                <Ionicons name="ellipsis-horizontal" size={20} color={theme.secondaryText} />
+                                            </Pressable>
+                                        </Pressable>
+                                    </SwipeableTrackRow>
+                                ) : (
+                                    <Pressable
+                                        onPress={() => confirmAndPlayTrack(track, index, false)}
+                                        onLongPress={() => useTidalForUnowned && openContextMenu(track, trackKey)}
                                         style={[
                                             styles.trackRow,
                                             {
                                                 borderBottomColor: theme.border,
-                                                backgroundColor: theme.background,
-                                                opacity: isImported ? 1 : 0.5
+                                                backgroundColor: theme.background
                                             }
                                         ]}
                                     >
@@ -396,17 +518,29 @@ export default function PlaylistPage({ route, navigation }) {
                                             </Text>
                                         </View>
 
-                                        {libraryTrack?.favorite ? (
-                                            <Ionicons name="star" size={16} color={theme.primaryText} style={{ marginRight: 8 }} />
-                                        ) : null}
-
-                                        {isImported && (
-                                            <Pressable onPress={() => openContextMenu(track, trackKey)} hitSlop={10}>
-                                                <Ionicons name="ellipsis-horizontal" size={20} color={theme.secondaryText} />
-                                            </Pressable>
+                                        {useTidalForUnowned && (
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                                {activeDownloads[track.id || track.name] !== undefined ? (
+                                                    <View style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}>
+                                                        <ActivityIndicator size="small" color={theme.accent || theme.primaryText} />
+                                                    </View>
+                                                ) : (
+                                                    <Pressable
+                                                        onPress={() => handleDownloadTrack(track)}
+                                                        style={({ pressed }) => ({
+                                                            opacity: pressed ? 0.5 : 1,
+                                                            padding: 10,
+                                                            margin: -10,
+                                                        })}
+                                                        hitSlop={16}
+                                                    >
+                                                        <Ionicons name="download-outline" size={22} color={theme.secondaryText} />
+                                                    </Pressable>
+                                                )}
+                                            </View>
                                         )}
                                     </Pressable>
-                                </SwipeableTrackRow>
+                                )}
                             </Animated.View>
                         );
                     })}

@@ -163,7 +163,7 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
   );
 }
 
-export default function SongPlayer({ isVisible = true, track, onClose, onOpen, theme, setPlayerControls, onArtistPress, queue = [], queueIndex = 0, onTrackChange, onQueueReorder, toggleFavorite, isFavorite, shouldPlay = true, zIndex = 1000, shouldHide = false }) {
+export default function SongPlayer({ isVisible = true, track, onClose, onKill, onOpen, theme, setPlayerControls, onArtistPress, queue = [], queueIndex = 0, onTrackChange, onQueueReorder, toggleFavorite, isFavorite, shouldPlay = true, zIndex = 1000, shouldHide = false }) {
   const { height: screenHeight, width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { recentDownloads } = useDownload();
@@ -181,6 +181,9 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
 
   // Animation for hiding the player (slide down)
   const hideAnim = useRef(new Animated.Value(shouldHide ? 1 : 0)).current;
+  
+  // Animation for dismissing the mini player completely
+  const dismissAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.timing(hideAnim, {
@@ -281,12 +284,14 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
 
   const isVisibleRef = useRef(isVisible);
   const onCloseRef = useRef(onClose);
+  const onKillRef = useRef(onKill);
   const queueVisibleRef = useRef(queueVisible);
 
   useEffect(() => {
     isVisibleRef.current = isVisible;
     onCloseRef.current = onClose;
-  }, [isVisible, onClose]);
+    onKillRef.current = onKill;
+  }, [isVisible, onClose, onKill]);
 
   useEffect(() => {
     queueVisibleRef.current = queueVisible;
@@ -344,6 +349,56 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
         } else {
           Animated.spring(expandAnim, {
             toValue: 1,
+            friction: 14,
+            tension: 100,
+            useNativeDriver: false,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  // PanResponder for mini player dismiss (swipe down to kill)
+  const miniPlayerPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => !isVisibleRef.current, // Only active when minimized
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        if (isVisibleRef.current) return false; // Not active when expanded
+        if (isScrubbingRef.current) return false;
+        const isDownwardSwipe = gestureState.dy > 5;
+        const isVerticalDominant = Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
+        return isDownwardSwipe && isVerticalDominant;
+      },
+      onPanResponderGrant: () => {
+        dismissAnim.setOffset(dismissAnim._value);
+        dismissAnim.setValue(0);
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (gestureState.dy > 0) {
+          // Map dy to 0-1 range for dismiss animation
+          const progress = Math.min(gestureState.dy / 150, 1);
+          dismissAnim.setValue(progress);
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        dismissAnim.flattenOffset();
+        // If swiped down more than 80px or fast velocity, kill the player
+        if (gestureState.dy > 80 || gestureState.vy > 0.8) {
+          // Animate to fully dismissed
+          Animated.timing(dismissAnim, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: false,
+          }).start(() => {
+            // Kill the player
+            if (onKillRef.current) {
+              onKillRef.current();
+            }
+          });
+        } else {
+          // Snap back
+          Animated.spring(dismissAnim, {
+            toValue: 0,
             friction: 14,
             tension: 100,
             useNativeDriver: false,
@@ -715,6 +770,17 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
     outputRange: [screenHeight, 0],
   });
 
+  // Dismiss animation interpolations for mini player
+  const dismissTranslateY = dismissAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 150]
+  });
+
+  const dismissOpacity = dismissAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [1, 0.5, 0]
+  });
+
   return (
     <Animated.View
       style={[
@@ -734,7 +800,19 @@ export default function SongPlayer({ isVisible = true, track, onClose, onOpen, t
       {...panResponder.panHandlers}
     >
       {/* Mini Player Content */}
-      <Animated.View style={[styles.miniPlayerContainer, { opacity: miniOpacity, backgroundColor: theme?.card || '#202020', borderRadius: containerRadius, elevation: zIndex > 0 ? 6 : 0 }]}>
+      <Animated.View 
+        style={[
+          styles.miniPlayerContainer, 
+          { 
+            opacity: Animated.multiply(miniOpacity, dismissOpacity), 
+            backgroundColor: theme?.card || '#202020', 
+            borderRadius: containerRadius, 
+            elevation: zIndex > 0 ? 6 : 0,
+            transform: [{ translateY: dismissTranslateY }]
+          }
+        ]}
+        {...miniPlayerPanResponder.panHandlers}
+      >
         <Pressable style={styles.miniMainArea} onPress={onOpen}>
           {miniImageUrl ? (
             <Image source={{ uri: miniImageUrl }} style={styles.miniArtwork} />

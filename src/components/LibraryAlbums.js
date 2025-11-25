@@ -3,7 +3,7 @@ import { View, Text, ScrollView, Pressable, Image, StyleSheet } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 
 export default function LibraryAlbums({ route, navigation }) {
-    const { theme, libraryAlbums, onTrackPress } = route.params;
+    const { theme, libraryAlbums, onTrackPress, reloadArtwork } = route.params;
 
     const renderAlbumGridItem = (album, index) => {
         return (
@@ -13,7 +13,14 @@ export default function LibraryAlbums({ route, navigation }) {
                 onPress={() => navigation.navigate('LibraryAlbum', { ...route.params, album })}
             >
                 {album.artwork ? (
-                    <Image source={{ uri: album.artwork }} style={[styles.artwork, { borderRadius: 8 }]} />
+                    <Image 
+                        source={{ uri: album.artwork }} 
+                        style={[styles.artwork, { borderRadius: 8 }]} 
+                        onError={() => {
+                            console.log('[LibraryAlbums] Artwork load error for:', album.title);
+                            if (reloadArtwork) reloadArtwork(album.title, album.artist);
+                        }}
+                    />
                 ) : (
                     <View style={[styles.artwork, { backgroundColor: theme.card, borderRadius: 8 }]}>
                         <Ionicons name="disc-outline" size={60} color={theme.secondaryText} />

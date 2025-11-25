@@ -230,6 +230,7 @@ return {
     id: 'ytdl',
     name: 'YTDL (Spotify Search)',
     version: '1.6.0',
+    labels: ['Fast', 'Perfect for streaming'],
     searchTracks,
     getTrackStreamUrl,
     getAlbum,

@@ -336,6 +336,22 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
       }
   };
 
+  const resetDownloads = async () => {
+    setActiveDownloads({});
+    setAlbumDownloads({});
+    setDownloadedTracks(new Set());
+    setRecentDownloads({});
+    try {
+      // Clear the persistence file directly if needed, though state update will trigger save
+      const fileInfo = await FileSystem.getInfoAsync(DOWNLOADS_FILE);
+      if (fileInfo.exists) {
+        await FileSystem.deleteAsync(DOWNLOADS_FILE);
+      }
+    } catch (e) {
+      console.warn('[DownloadContext] Failed to delete downloads file', e);
+    }
+  };
+
   return (
     <DownloadContext.Provider value={{
       activeDownloads,
@@ -343,7 +359,8 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
       downloadedTracks,
       recentDownloads,
       handleDownloadTrack,
-      startAlbumDownload
+      startAlbumDownload,
+      resetDownloads
     }}>
       {children}
     </DownloadContext.Provider>

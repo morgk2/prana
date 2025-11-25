@@ -75,7 +75,7 @@ const PlayingIndicator = ({ color }) => {
 };
 
 export default function LibraryAlbumPage({ route, navigation }) {
-  const { album: initialAlbum, theme, onTrackPress, libraryAlbums, library, openArtistByName, deleteTrack, updateTrack, addToQueue, addAlbumToQueue, currentTrack, isPlaying, togglePlay, useTidalForUnowned, addToLibrary, showNotification, playlists, addTrackToPlaylist } = route.params;
+  const { album: initialAlbum, theme, onTrackPress, libraryAlbums, library, openArtistByName, deleteTrack, updateTrack, addToQueue, addAlbumToQueue, currentTrack, isPlaying, togglePlay, useTidalForUnowned, addToLibrary, showNotification, playlists, addTrackToPlaylist, reloadArtwork } = route.params;
   const loading = false;
   const isFocused = useIsFocused();
   const { height: screenHeight } = useWindowDimensions();
@@ -628,6 +628,10 @@ export default function LibraryAlbumPage({ route, navigation }) {
             <Image
               style={styles.albumArtwork}
               source={{ uri: album.artwork }}
+              onError={() => {
+                  console.log('[LibraryAlbumPage] Artwork load error for:', album.title);
+                  if (reloadArtwork) reloadArtwork(album.title, typeof album.artist === 'object' ? album.artist.name : album.artist);
+              }}
             />
           ) : (
             <View style={[styles.albumArtwork, { backgroundColor: theme.card }]}>

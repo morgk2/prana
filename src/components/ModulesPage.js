@@ -7,6 +7,7 @@ import { ModuleManager } from '../services/ModuleManager';
 import { getArtworkWithFallback } from '../utils/artworkFallback';
 import { TIDAL_MODULE_CODE } from '../services/defaultTidalModule';
 import { YTDL_MODULE_CODE } from '../services/ytdlModule';
+import { SPARTDL_MODULE_CODE } from '../services/spartdlModule';
 
 export default function ModulesPage({ route, navigation }) {
   const { theme, openTrackPlayer, useTidalForUnowned, toggleTidalForUnowned } = route.params;
@@ -31,6 +32,9 @@ export default function ModulesPage({ route, navigation }) {
 
   // Help Modal state
   const [showHelpModal, setShowHelpModal] = useState(false);
+  
+  // Installation loading state
+  const [installingModule, setInstallingModule] = useState(null);
 
   useEffect(() => {
     loadModules();
@@ -74,6 +78,30 @@ export default function ModulesPage({ route, navigation }) {
     } catch (err) {
       console.error('File pick error:', err);
       Alert.alert('Error', 'Failed to read selected file');
+    }
+  };
+
+  const handleInstallDefaultModule = async (module, openAfterInstall = false) => {
+    try {
+      setInstallingModule(module.id);
+      await ModuleManager.installModule(module.moduleCode);
+      await loadModules(); // Wait for modules to reload
+      
+      Alert.alert('Success', 'Module installed successfully');
+      
+      if (openAfterInstall) {
+        // Find the installed module and open it
+        const installedModules = ModuleManager.getAllModules();
+        const installedModule = installedModules.find(m => m.id === module.id);
+        if (installedModule) {
+          setActiveModule(installedModule);
+          setCurrentView('module_details');
+        }
+      }
+    } catch (err) {
+      Alert.alert('Error', 'Failed to install module: ' + err.message);
+    } finally {
+      setInstallingModule(null);
     }
   };
 
@@ -153,14 +181,17 @@ export default function ModulesPage({ route, navigation }) {
 
       const streamUrl = response.streamUrl;
       const artwork = await getArtworkWithFallback(track);
+      
+      // Prefer metadata from response if available (e.g. SpartDL updates duration)
+      const responseTrack = response.track || {};
 
       const formattedTrack = {
-        name: track.title,
-        artist: typeof track.artist === 'string' ? track.artist : (track.artist?.name || 'Unknown Artist'),
-        album: track.album || 'Unknown Album',
-        duration: track.duration,
+        name: responseTrack.title || track.title,
+        artist: responseTrack.artist || (typeof track.artist === 'string' ? track.artist : (track.artist?.name || 'Unknown Artist')),
+        album: responseTrack.album || track.album || 'Unknown Album',
+        duration: responseTrack.duration || track.duration,
         uri: streamUrl,
-        image: artwork,
+        image: responseTrack.albumCover || artwork, // Use high-res cover if available in response
         source: 'module', // Generic source
         moduleId: activeModule?.id || 'unknown',
         originalId: track.id,
@@ -210,6 +241,73 @@ export default function ModulesPage({ route, navigation }) {
     );
   };
 
+  const renderDefaultModuleCard = (module) => (
+    <Pressable
+      key={module.id}
+      style={[styles.moduleCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+      onPress={() => {
+        if (installingModule === module.id) return;
+        handleInstallDefaultModule(module, false);
+      }}
+    >
+      <View style={styles.moduleHeaderRow}>
+        <View style={[styles.moduleIconContainer, { backgroundColor: theme.inputBackground }]}>
+          <Ionicons name="cube-outline" size={32} color={theme.accent} />
+        </View>
+        <View style={styles.moduleInfo}>
+          <Text style={[styles.moduleName, { color: theme.primaryText }]}>{module.name}</Text>
+          <Text style={[styles.moduleAuthor, { color: theme.secondaryText }]}>v{module.version}</Text>
+        </View>
+      </View>
+
+      <Text style={[styles.moduleDescription, { color: theme.secondaryText }]}>
+        Default module ready to install.
+      </Text>
+
+      {/* Module Labels */}
+      {module.labels && module.labels.length > 0 && (
+        <View style={styles.moduleLabels}>
+          {module.labels.map((label, index) => (
+            <View key={index} style={[styles.labelTag, { backgroundColor: theme.accent + '20', borderColor: theme.accent }]}>
+              <Text style={[styles.labelText, { color: theme.accent }]}>{label}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      <View style={styles.moduleActions}>
+        <Pressable
+          style={[styles.actionButton, { backgroundColor: installingModule === module.id ? theme.border : theme.accent }]}
+          onPress={() => {
+            if (installingModule === module.id) return;
+            handleInstallDefaultModule(module, false);
+          }}
+          disabled={installingModule === module.id}
+        >
+          {installingModule === module.id ? (
+            <ActivityIndicator size="small" color={theme.accent} />
+          ) : (
+            <Text style={[styles.actionButtonText, { color: '#fff' }]}>Install</Text>
+          )}
+        </Pressable>
+        <Pressable
+          style={[styles.actionButton, styles.uninstallButton, { backgroundColor: installingModule === module.id ? theme.border : theme.border }]}
+          onPress={() => {
+            if (installingModule === module.id) return;
+            handleInstallDefaultModule(module, true);
+          }}
+          disabled={installingModule === module.id}
+        >
+          {installingModule === module.id ? (
+            <ActivityIndicator size="small" color={theme.secondaryText} />
+          ) : (
+            <Text style={[styles.actionButtonText, { color: theme.primaryText }]}>Install & Open</Text>
+          )}
+        </Pressable>
+      </View>
+    </Pressable>
+  );
+
   const renderModuleCard = (module) => (
     <Pressable
       key={module.id}
@@ -232,6 +330,17 @@ export default function ModulesPage({ route, navigation }) {
       <Text style={[styles.moduleDescription, { color: theme.secondaryText }]}>
         Installed user module.
       </Text>
+
+      {/* Module Labels */}
+      {module.labels && module.labels.length > 0 && (
+        <View style={styles.moduleLabels}>
+          {module.labels.map((label, index) => (
+            <View key={index} style={[styles.labelTag, { backgroundColor: theme.accent + '20', borderColor: theme.accent }]}>
+              <Text style={[styles.labelText, { color: theme.accent }]}>{label}</Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       <View style={styles.moduleActions}>
         <Pressable
@@ -283,27 +392,34 @@ export default function ModulesPage({ route, navigation }) {
           {modulesList.length > 0 ? (
             modulesList.map(renderModuleCard)
           ) : (
-            <View style={styles.emptyState}>
-              <Ionicons name="cube-outline" size={48} color={theme.secondaryText} />
-              <Text style={[styles.emptyText, { color: theme.secondaryText }]}>No modules installed</Text>
+            <View style={styles.modulesListContainer}>
+              {/* Default Module Cards */}
+              {renderDefaultModuleCard({
+                id: 'tidal',
+                name: 'Tidal Music',
+                version: '1.0.0',
+                labels: ['LOSSLESS quality', 'Great for downloading'],
+                moduleCode: TIDAL_MODULE_CODE,
+                installed: false
+              })}
               
-              {/* Quick Install for Tidal */}
-              <Pressable
-                style={[styles.quickInstallButton, { backgroundColor: theme.card, borderColor: theme.accent }]}
-                onPress={() => handleInstallModule(TIDAL_MODULE_CODE)}
-              >
-                 <Ionicons name="download-outline" size={20} color={theme.accent} />
-                 <Text style={[styles.quickInstallText, { color: theme.accent }]}>Install Tidal Music</Text>
-              </Pressable>
-
-              {/* Quick Install for YTDL */}
-              <Pressable
-                style={[styles.quickInstallButton, { backgroundColor: theme.card, borderColor: theme.accent }]}
-                onPress={() => handleInstallModule(YTDL_MODULE_CODE)}
-              >
-                 <Ionicons name="logo-youtube" size={20} color={theme.accent} />
-                 <Text style={[styles.quickInstallText, { color: theme.accent }]}>Install YTDL (Spotify)</Text>
-              </Pressable>
+              {renderDefaultModuleCard({
+                id: 'ytdl',
+                name: 'YTDL (Spotify Search)',
+                version: '1.6.0',
+                labels: ['Fast', 'Perfect for streaming'],
+                moduleCode: YTDL_MODULE_CODE,
+                installed: false
+              })}
+              
+              {renderDefaultModuleCard({
+                id: 'spartdl',
+                name: 'SpartDL (Spotify Downloads)',
+                version: '1.2.1',
+                labels: ["I'm hosting it on a potato", "Great for downloading"],
+                moduleCode: SPARTDL_MODULE_CODE,
+                installed: false
+              })}
             </View>
           )}
 
@@ -470,6 +586,14 @@ export default function ModulesPage({ route, navigation }) {
                    <Ionicons name="logo-youtube" size={20} color={theme.accent} />
                    <Text style={[styles.quickInstallText, { color: theme.accent }]}>YTDL</Text>
                 </Pressable>
+
+              <Pressable
+                  style={[styles.quickInstallButton, { backgroundColor: theme.card, borderColor: theme.accent }]}
+                  onPress={() => handleInstallModule(SPARTDL_MODULE_CODE)}
+                >
+                   <Ionicons name="download-outline" size={20} color={theme.accent} />
+                   <Text style={[styles.quickInstallText, { color: theme.accent }]}>SpartDL</Text>
+                </Pressable>
             </ScrollView>
           </View>
         </View>
@@ -509,7 +633,7 @@ export default function ModulesPage({ route, navigation }) {
               {"\n\n"}
               <Text style={{ fontWeight: 'bold', fontSize: 20, color: theme.primaryText, textAlign: 'center' }}>You wouldn't steal a car ;)</Text>
               {"\n\n"}
-              <Text style={{ fontWeight: 'bold', color: theme.primaryText, fontStyle: 'italic' }}>I, morgk the developer of this app hate pirating media and i will hate you if you pirate media!! i hate illegal stuff >:( !!!!</Text>
+              <Text style={{ fontWeight: 'bold', color: theme.primaryText, fontStyle: 'italic' }}>I, morgk the developer of this app hate pirating media and i will hate you if you pirate media!! i hate illegal stuff &gt;:( !!!!</Text>
               {"\n\n"}
               By clicking "I Agree", you certify that you understand these terms and will use Prana's module engine responsibly and legally.
             </Text>
@@ -610,6 +734,12 @@ const styles = StyleSheet.create({
   moduleName: { fontSize: 18, fontWeight: '600' },
   moduleAuthor: { fontSize: 14 },
   moduleDescription: { fontSize: 14, lineHeight: 20 },
+  moduleLabels: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  labelTag: {
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12,
+    borderWidth: 1, alignItems: 'center', justifyContent: 'center',
+  },
+  labelText: { fontSize: 11, fontWeight: '500' },
   moduleActions: { flexDirection: 'row', gap: 12, marginTop: 4 },
   actionButton: {
     flex: 1, height: 40, borderRadius: 20,

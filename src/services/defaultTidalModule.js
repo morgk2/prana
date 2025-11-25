@@ -69,60 +69,61 @@ async function fetchWithFallback(endpoint, options = {}) {
             const result = await new Promise((resolve, reject) => {
                 let rejectedCount = 0;
                 let resolved = false;
-                
-                batch.forEach(async (server) => {
-                    try {
-                        const url = \`\${server}\${endpoint}\`;
-                        console.log(\`[Tidal] Trying: \${url}\`);
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 5000);
-                        
-                        const response = await fetch(url, {
-                            ...options,
-                            headers: {
-                                'Accept': 'application/json',
-                                ...options.headers,
-                            },
-                            signal: controller.signal,
-                        }).finally(() => clearTimeout(timeoutId));
+                let completedRequests = 0;
 
-                        if (response.ok) {
-                            const text = await response.text();
-                            if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
-                                throw new Error('Invalid response (HTML)');
+                batch.forEach((server) => {
+                    const url = server + endpoint;
+                    console.log('[Tidal] Trying: ' + url);
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+                    fetch(url, {
+                        ...options,
+                        headers: {
+                            'Accept': 'application/json',
+                            ...options.headers,
+                        },
+                        signal: controller.signal,
+                    }).then(response => {
+                        clearTimeout(timeoutId);
+                        if (!resolved) {
+                            if (response.ok) {
+                                return response.text().then(text => {
+                                    try {
+                                        const json = JSON.parse(text);
+                                        if (!resolved) {
+                                            resolved = true;
+                                            resolve(json);
+                                        }
+                                    } catch (parseError) {
+                                        throw new Error('Invalid JSON');
+                                    }
+                                });
                             }
-                            try {
-                                const json = JSON.parse(text);
-                                if (!resolved) {
-                                    resolved = true;
-                                    resolve(json);
+
+                            if (response.status === 429 || response.status === 402 || response.status >= 500) {
+                                throw new Error('HTTP ' + response.status);
+                            }
+                            if (response.status >= 400) {
+                                if (response.status === 404) {
+                                    throw new Error('HTTP 404');
                                 }
-                                return;
-                            } catch (parseError) {
-                                throw new Error('Invalid JSON');
+                                return response.text().then(errorText => {
+                                    throw new Error('HTTP ' + response.status + ': ' + (errorText || response.statusText));
+                                });
                             }
                         }
-                        
-                        if (response.status === 429 || response.status === 402 || response.status >= 500) {
-                             throw new Error(\`HTTP \${response.status}\`);
-                        }
-                        if (response.status >= 400) {
-                             if (response.status === 404) {
-                                 throw new Error('HTTP 404');
-                             }
-                             const errorText = await response.text().catch(() => '');
-                             throw new Error(\`HTTP \${response.status}: \${errorText || response.statusText}\`);
-                        }
-                         throw new Error(\`HTTP \${response.status}: \${response.statusText}\`);
-                    } catch (error) {
+                    }).catch(error => {
+                        clearTimeout(timeoutId);
                         if (!resolved) {
                             if (error.name !== 'AbortError') lastError = error;
                             rejectedCount++;
-                            if (rejectedCount === batch.length) {
+                            completedRequests++;
+                            if (completedRequests === batch.length && !resolved) {
                                 reject(new Error('Batch failed'));
                             }
                         }
-                    }
+                    });
                 });
             });
             return result;
@@ -156,7 +157,7 @@ function findTracksSection(data, visited = new Set()) {
 async function searchTracks(query, limit = 50) {
     try {
         const data = await fetchWithFallback(
-            \`/search/?s=\${encodeURIComponent(query)}&limit=\${limit}\`
+            '/search/?s=' + encodeURIComponent(query) + '&limit=' + limit
         );
         const tracksSection = findTracksSection(data);
         const items = tracksSection?.items || data.items || [];
@@ -197,9 +198,9 @@ async function getTrackStreamUrl(trackId, preferredQuality = 'LOSSLESS') {
     for (let i = startIndex; i < qualities.length; i++) {
         const quality = qualities[i];
         try {
-            console.log(\`[Tidal] Requesting stream for track \${trackId} with quality \${quality}\`);
+            console.log('[Tidal] Requesting stream for track ' + trackId + ' with quality ' + quality);
             const data = await fetchWithFallback(
-                \`/track/?id=\${trackId}&quality=\${quality}\`
+                '/track/?id=' + trackId + '&quality=' + quality
             );
             const entries = Array.isArray(data) ? data : [data];
             let track = null;
@@ -246,7 +247,7 @@ async function getTrackStreamUrl(trackId, preferredQuality = 'LOSSLESS') {
                 },
             };
         } catch (error) {
-            console.warn(\`[Tidal] Failed to get stream for \${trackId} at \${quality}:\`, error.message);
+            console.warn('[Tidal] Failed to get stream for ' + trackId + ' at ' + quality + ':', error.message);
             lastError = error;
         }
     }
@@ -255,7 +256,7 @@ async function getTrackStreamUrl(trackId, preferredQuality = 'LOSSLESS') {
 
 async function getAlbum(albumId) {
     // Minimal implementation for album fetch
-    const data = await fetchWithFallback(\`/album/?id=\${albumId}\`);
+    const data = await fetchWithFallback('/album/?id=' + albumId);
     // ... implementation simplified for brevity but should match original if possible
     // For now, just return the raw data structure if possible or copy full logic
     // To save space I'll just copy the relevant logic in full
@@ -309,6 +310,7 @@ return {
     id: 'tidal',
     name: 'Tidal Music',
     version: '1.0.0',
+    labels: ['LOSSLESS quality', 'Great for downloading'],
     searchTracks,
     getTrackStreamUrl,
     getAlbum

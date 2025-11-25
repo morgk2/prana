@@ -1,4 +1,4 @@
-import { DownloadProvider } from './src/context/DownloadContext';
+import { DownloadProvider, useDownload } from './src/context/DownloadContext';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, TextInput, Button, ActivityIndicator, Image, FlatList, ScrollView, Pressable, useColorScheme, Animated, Modal, Alert, useWindowDimensions, Linking } from 'react-native';
@@ -7,6 +7,7 @@ import { NavigationContainer, StackActions } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAudioMetadata } from './src/utils/audioMetadata';
 import { searchLastfmArtists, searchLastfmTracks, searchLastfmAlbums, getArtistTopTracks, getArtistTopAlbums, getAlbumInfo } from './src/api/lastfm';
 import ArtistPage from './src/components/ArtistPage';
@@ -28,6 +29,7 @@ import * as Haptics from 'expo-haptics';
 import { ModuleManager } from './src/services/ModuleManager';
 import { YTDL_MODULE_CODE } from './src/services/ytdlModule';
 import * as Notifications from 'expo-notifications';
+import { clearArtworkCacheManually, getArtworkWithFallback } from './src/utils/artworkFallback';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -309,7 +311,8 @@ function LibraryHomeScreen({ route, navigation }) {
             useTidalForUnowned,
             currentTrack,
             isPlaying: playerControls?.isPlaying,
-            togglePlay: playerControls?.togglePlay
+            togglePlay: playerControls?.togglePlay,
+            reloadArtwork,
           })}
           onLongPress={() => openContextMenu(album, albumKey)}
         >
@@ -391,7 +394,7 @@ function LibraryHomeScreen({ route, navigation }) {
 
           <Pressable
             style={[styles.libraryNavButton, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
-            onPress={() => navigation.navigate('LibraryAlbums', { theme, libraryAlbums, onTrackPress: openTrackPlayer })}
+            onPress={() => navigation.navigate('LibraryAlbums', { theme, libraryAlbums, onTrackPress: openTrackPlayer, reloadArtwork })}
           >
             <View style={styles.libraryNavIconContainer}>
               <Ionicons name="albums" size={28} color={theme.primaryText} />
@@ -549,6 +552,7 @@ function LibraryHomeScreen({ route, navigation }) {
 // Cache Page
 function CachePage({ route, navigation }) {
   const { theme, library, libraryArtists, libraryAlbums, clearAllData } = route.params;
+  const { resetDownloads } = useDownload();
   const [storageInfo, setStorageInfo] = useState({ free: 0, total: 0, used: 0, appUsed: 0 });
 
   useEffect(() => {
@@ -594,6 +598,29 @@ function CachePage({ route, navigation }) {
     return { app, other, free: 100 - totalUsed };
   };
 
+  const handleClearArtworkCache = () => {
+    Alert.alert(
+      'Clear Artwork Cache',
+      'This will clear all cached album and song covers. They will be downloaded again when needed.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await clearArtworkCacheManually();
+              Alert.alert('Success', 'Artwork cache cleared successfully');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to clear artwork cache');
+              console.error('Error clearing artwork cache:', error);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const handleClearData = () => {
     Alert.alert(
       'Clear All Data',
@@ -603,9 +630,10 @@ function CachePage({ route, navigation }) {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
             if (clearAllData) {
-              clearAllData();
+              if (resetDownloads) await resetDownloads();
+              await clearAllData();
               navigation.goBack();
             }
           }
@@ -690,6 +718,20 @@ function CachePage({ route, navigation }) {
               </Text>
             </View>
           </View>
+        </View>
+
+        <View style={[styles.settingsSection, { marginTop: 20 }]}>
+          <Text style={[styles.sectionHeader, { color: theme.primaryText, marginBottom: 12 }]}>Cache Management</Text>
+          
+          <Pressable
+            style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border, justifyContent: 'center' }]}
+            onPress={handleClearArtworkCache}
+          >
+            <Text style={{ color: theme.accent, fontSize: 17, fontWeight: '600' }}>Clear Artwork Cache</Text>
+          </Pressable>
+          <Text style={{ paddingHorizontal: 16, color: theme.secondaryText, fontSize: 12, marginTop: 8, textAlign: 'center' }}>
+            Clear cached album and song covers. They will be re-downloaded when needed.
+          </Text>
         </View>
 
         <View style={[styles.settingsSection, { marginTop: 20 }]}>
@@ -1407,7 +1449,27 @@ function AppContent() {
         }
       }
 
-      Alert.alert('Success', 'All data has been cleared.');
+      // Clear Async Storage
+      await AsyncStorage.clear();
+
+      // Clear Cache Directory
+      try {
+        if (FileSystem.cacheDirectory) {
+            await FileSystem.deleteAsync(FileSystem.cacheDirectory, { idempotent: true });
+            await FileSystem.makeDirectoryAsync(FileSystem.cacheDirectory, { intermediates: true });
+        }
+      } catch (err) {
+          console.warn('Failed to clear cache directory', err);
+      }
+
+      // Clear Artwork Cache
+      try {
+          await clearArtworkCacheManually();
+      } catch (err) {
+          console.warn('Failed to clear artwork cache', err);
+      }
+
+      Alert.alert('Success', 'All data has been cleared. The app is now empty.');
     } catch (e) {
       console.warn('Failed to clear data', e);
       Alert.alert('Error', 'Failed to clear data.');
@@ -1957,6 +2019,52 @@ function AppContent() {
     });
   };
 
+  const reloadArtwork = async (albumTitle, artistName) => {
+    console.log(`[App] Reloading artwork for: ${albumTitle} by ${artistName}`);
+    // Find a sample track to base the search on
+    const track = library.find(t =>
+      (t.album === albumTitle || t.album?.title === albumTitle) &&
+      (t.artist === artistName || t.artist?.name === artistName)
+    );
+
+    if (!track) {
+        console.warn('[App] No track found for album reload:', albumTitle);
+        return;
+    }
+
+    try {
+        // Use a slight delay to prevent rapid-fire reloads if multiple images fail at once
+        const newArtwork = await getArtworkWithFallback({
+            name: track.name,
+            artist: artistName,
+            album: albumTitle
+        }, true); // Force refresh
+
+        if (newArtwork && newArtwork.length > 0) {
+            const imageUrl = pickImageUrl(newArtwork, 'extralarge');
+            if (imageUrl) {
+                 console.log('[App] Found new artwork:', imageUrl);
+                 // Update all tracks in this album
+                 setLibrary(prev => {
+                     const next = prev.map(t => {
+                        const tAlbum = t.album?.title || t.album;
+                        const tArtist = t.artist?.name || t.artist;
+                         // Match album and artist (handling string vs object)
+                         if (tAlbum === albumTitle && (tArtist === artistName || (typeof t.artist === 'object' && t.artist.name === artistName))) {
+                             return { ...t, image: newArtwork };
+                         }
+                         return t;
+                     });
+                     saveLibrary(next);
+                     return next;
+                 });
+            }
+        }
+    } catch (e) {
+        console.warn('[App] Failed to reload artwork', e);
+    }
+  };
+
   const openTrackPlayer = (track, queue = null, index = 0, expandPlayer = true) => {
     if (!track) return;
 
@@ -2146,6 +2254,7 @@ function AppContent() {
           useTidalForUnowned,
           addToLibrary,
           showNotification: showQueueNotification,
+          reloadArtwork,
         });
       }
     } catch (e) {
@@ -2289,6 +2398,7 @@ function AppContent() {
             useTidalForUnowned,
             playerControls,
             clearAllData,
+            reloadArtwork,
           },
         }}
       />
@@ -2630,7 +2740,23 @@ function AppContent() {
               )}
             />
             <RootStack.Screen name="LibraryArtists" component={LibraryArtists} />
-            <RootStack.Screen name="LibraryAlbums" component={LibraryAlbums} />
+            <RootStack.Screen name="LibraryAlbums">
+              {(props) => (
+                <LibraryAlbums
+                  {...props}
+                  route={{
+                    ...props.route,
+                    params: {
+                      ...props.route.params,
+                      theme,
+                      libraryAlbums,
+                      onTrackPress: openTrackPlayer,
+                      reloadArtwork,
+                    },
+                  }}
+                />
+              )}
+            </RootStack.Screen>
             <RootStack.Screen name="LibrarySongs" component={LibrarySongs} />
             <RootStack.Screen name="LibraryPlaylists" component={LibraryPlaylists} />
             <RootStack.Screen name="PlaylistPage" component={PlaylistPage} />
@@ -2784,6 +2910,7 @@ function AppContent() {
             queue={currentQueue}
             queueIndex={currentQueueIndex}
             onClose={minimizePlayer}
+            onKill={closeTrackPlayer}
             onOpen={() => setIsPlayerExpanded(true)}
             onTrackChange={handleTrackChange}
             onQueueReorder={handleQueueReorder}
