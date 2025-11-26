@@ -480,15 +480,19 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
         console.log('[SongPlayer] Playing from download:', downloadedUri);
       }
 
-      if (!currentUri && shouldStreamFromTidal(track, true)) {
+      // Always get playable track info if we should stream from Tidal
+      // This ensures we have the correct numeric tidalId and freshest cached URI
+      if (shouldStreamFromTidal(track, true)) {
         try {
           setIsResolvingTidal(true);
           const playable = await getPlayableTrack(track, true);
           if (playable) {
-            if (playable.uri) {
+            // Use cached/resolved URI if available (it might be fresher than track.uri)
+            if (playable.uri && playable.source === 'tidal') {
               currentUri = playable.uri;
               if (!cancelled) setActiveUri(currentUri);
             }
+            // Always update tidalId to ensure we have the numeric ID for potential refreshes
             if (playable.tidalId) {
               workingTidalId = playable.tidalId;
             }
@@ -595,7 +599,31 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
               setSound(soundObj);
             }
           } catch (retryError) {
-            console.warn('[SongPlayer] Retry failed:', retryError);
+            console.warn('[SongPlayer] Retry with ID failed:', retryError);
+          } finally {
+            if (!cancelled) setIsResolvingTidal(false);
+          }
+        }
+        
+        // If we still don't have a sound object and should stream from TIDAL, try name-based search
+        if (!soundObj && !currentUri && shouldStreamFromTidal(track, true)) {
+          if (!cancelled) setIsResolvingTidal(true);
+          try {
+            console.log('[SongPlayer] Falling back to name-based TIDAL search for:', track.name);
+            const playable = await getPlayableTrack(track, true);
+            if (playable && playable.uri) {
+              currentUri = playable.uri;
+              if (!cancelled) setActiveUri(currentUri);
+              if (cancelled) return;
+              soundObj = await loadSound(currentUri);
+              if (cancelled) {
+                await soundObj.unloadAsync().catch(() => { });
+                return;
+              }
+              setSound(soundObj);
+            }
+          } catch (nameSearchError) {
+            console.warn('[SongPlayer] Name-based search also failed:', nameSearchError);
           } finally {
             if (!cancelled) setIsResolvingTidal(false);
           }

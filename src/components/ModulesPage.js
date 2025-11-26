@@ -385,6 +385,27 @@ export default function ModulesPage({ route, navigation }) {
 
       {currentView === 'list' ? (
         <ScrollView contentContainerStyle={styles.modulesListContainer}>
+          {/* Toggle Card */}
+          <View style={[styles.toggleCard, { backgroundColor: theme.card }]}>
+            <View style={styles.toggleLeft}>
+              <Ionicons name="musical-notes" size={24} color={theme.primaryText} />
+              <View style={styles.toggleTextContainer}>
+                <Text style={[styles.toggleTitle, { color: theme.primaryText }]}>
+                  Use modules to play music on the go
+                </Text>
+                <Text style={[styles.toggleDescription, { color: theme.secondaryText }]}>
+                  Stream unowned tracks using installed modules
+                </Text>
+              </View>
+            </View>
+            <Switch
+              value={useTidalForUnowned}
+              onValueChange={toggleTidalForUnowned}
+              trackColor={{ false: theme.border, true: theme.accent + '80' }}
+              thumbColor={useTidalForUnowned ? theme.accent : theme.secondaryText}
+            />
+          </View>
+
           <Text style={[styles.sectionTitle, { color: theme.primaryText, marginBottom: 16, paddingHorizontal: 16 }]}>
             Installed Modules
           </Text>
@@ -433,6 +454,43 @@ export default function ModulesPage({ route, navigation }) {
         </ScrollView>
       ) : (
         <>
+          {/* Module Info Card */}
+          <View style={[styles.moduleDetailsCard, { backgroundColor: theme.card }]}>
+            <View style={styles.moduleDetailsHeader}>
+              <View style={[styles.moduleDetailsIcon, { backgroundColor: theme.accent + '20' }]}>
+                <Ionicons name="cube" size={48} color={theme.accent} />
+              </View>
+              <View style={styles.moduleDetailsInfo}>
+                <Text style={[styles.moduleDetailsName, { color: theme.primaryText }]}>
+                  {activeModule?.name || 'Module'}
+                </Text>
+                <Text style={[styles.moduleDetailsVersion, { color: theme.secondaryText }]}>
+                  Version {activeModule?.version || '1.0.0'}
+                </Text>
+                <Text style={[styles.moduleDetailsAuthor, { color: theme.secondaryText }]}>
+                  by Morg
+                </Text>
+              </View>
+            </View>
+
+            {/* Module Labels */}
+            {activeModule?.labels && activeModule.labels.length > 0 && (
+              <View style={styles.moduleDetailsLabels}>
+                {activeModule.labels.map((label, index) => (
+                  <View key={index} style={[styles.moduleDetailLabel, { backgroundColor: theme.accent + '15', borderColor: theme.accent + '30' }]}>
+                    <Text style={[styles.moduleDetailLabelText, { color: theme.accent }]}>{label}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Module Description */}
+            <Text style={[styles.moduleDetailsDescription, { color: theme.secondaryText }]}>
+              Connect to external music sources and stream your favorite tracks directly within Prana.
+            </Text>
+          </View>
+
+          {/* Toggle Section */}
           <View style={[styles.toggleSection, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
             <View style={styles.toggleLeft}>
               <Ionicons name="cloud-download-outline" size={24} color={theme.primaryText} />
@@ -453,10 +511,11 @@ export default function ModulesPage({ route, navigation }) {
             />
           </View>
 
+          {/* Search Section */}
           <View style={styles.searchSection}>
             <View style={styles.sectionHeader}>
               <Ionicons name="search" size={20} color={theme.accent} />
-              <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Search {activeModule?.name}</Text>
+              <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Test the Module</Text>
             </View>
 
             <View style={[styles.searchBar, { backgroundColor: theme.inputBackground }]}>
@@ -539,63 +598,79 @@ export default function ModulesPage({ route, navigation }) {
               <Ionicons name="close" size={28} color={theme.primaryText} />
             </Pressable>
           </View>
-          <View style={styles.modalContent}>
+          <ScrollView style={styles.modalContent}>
             
+            {/* Server Connection Illustration */}
+            <View style={styles.illustrationContainer}>
+              <View style={styles.illustrationRow}>
+                <View style={[styles.serverIcon, { backgroundColor: theme.accent + '20' }]}>
+                  <Ionicons name="server-outline" size={48} color={theme.accent} />
+                </View>
+                <Ionicons name="arrow-forward" size={32} color={theme.accent} />
+                <View style={[styles.phoneIcon, { backgroundColor: theme.accent + '20' }]}>
+                  <Ionicons name="phone-portrait-outline" size={48} color={theme.accent} />
+                </View>
+              </View>
+            </View>
+
+            {/* Select Module File Button */}
             <Pressable
-              style={[styles.quickInstallButton, { backgroundColor: theme.card, borderColor: theme.accent, marginBottom: 20 }]}
+              style={[styles.selectFileButton, { backgroundColor: theme.card, borderColor: theme.accent }]}
               onPress={handlePickModuleFile}
             >
-              <Ionicons name="document-text-outline" size={24} color={theme.accent} />
-              <Text style={[styles.quickInstallText, { color: theme.accent, fontSize: 16 }]}>Select .js File</Text>
-            </Pressable>
-
-            <Text style={[styles.modalLabel, { color: theme.secondaryText }]}>Or paste module code:</Text>
-            <TextInput
-              style={[styles.codeInput, { backgroundColor: theme.inputBackground, color: theme.primaryText }]}
-              multiline
-              placeholder="// Paste code here..."
-              placeholderTextColor={theme.secondaryText}
-              value={installCode}
-              onChangeText={setInstallCode}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <Pressable
-              style={[styles.modalInstallButton, { backgroundColor: theme.accent, opacity: installCode.trim() ? 1 : 0.5 }]}
-              onPress={() => handleInstallModule(installCode)}
-              disabled={!installCode.trim()}
-            >
-              <Text style={styles.modalInstallButtonText}>Install</Text>
+              <Ionicons name="document-text-outline" size={28} color={theme.accent} />
+              <Text style={[styles.selectFileText, { color: theme.accent }]}>Select a Module File</Text>
             </Pressable>
             
-            <View style={styles.divider} />
+            {/* Bundled Modules Section */}
+            <View style={styles.bundledSection}>
+              <Text style={[styles.bundledTitle, { color: theme.primaryText }]}>Morg's Bundled Modules</Text>
+              
+              <Pressable
+                style={[styles.bundledModuleCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+                onPress={() => handleInstallModule(TIDAL_MODULE_CODE)}
+              >
+                <View style={[styles.bundledIconContainer, { backgroundColor: theme.accent + '15' }]}>
+                  <Ionicons name="musical-notes" size={32} color={theme.accent} />
+                </View>
+                <View style={styles.bundledModuleInfo}>
+                  <Text style={[styles.bundledModuleName, { color: theme.primaryText }]}>Tidal Music</Text>
+                  <Text style={[styles.bundledModuleDesc, { color: theme.secondaryText }]}>LOSSLESS quality • Great for downloading</Text>
+                </View>
+                <Ionicons name="download-outline" size={24} color={theme.accent} />
+              </Pressable>
+
+              <Pressable
+                style={[styles.bundledModuleCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+                onPress={() => handleInstallModule(YTDL_MODULE_CODE)}
+              >
+                <View style={[styles.bundledIconContainer, { backgroundColor: theme.accent + '15' }]}>
+                  <Ionicons name="logo-youtube" size={32} color={theme.accent} />
+                </View>
+                <View style={styles.bundledModuleInfo}>
+                  <Text style={[styles.bundledModuleName, { color: theme.primaryText }]}>YTDL (Spotify Search)</Text>
+                  <Text style={[styles.bundledModuleDesc, { color: theme.secondaryText }]}>Fast • Perfect for streaming</Text>
+                </View>
+                <Ionicons name="download-outline" size={24} color={theme.accent} />
+              </Pressable>
+
+              <Pressable
+                style={[styles.bundledModuleCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+                onPress={() => handleInstallModule(SPARTDL_MODULE_CODE)}
+              >
+                <View style={[styles.bundledIconContainer, { backgroundColor: theme.accent + '15' }]}>
+                  <Ionicons name="cloud-download-outline" size={32} color={theme.accent} />
+                </View>
+                <View style={styles.bundledModuleInfo}>
+                  <Text style={[styles.bundledModuleName, { color: theme.primaryText }]}>SpartDL (Spotify Downloads)</Text>
+                  <Text style={[styles.bundledModuleDesc, { color: theme.secondaryText }]}>I'm hosting it on a potato • Great for downloading</Text>
+                </View>
+                <Ionicons name="download-outline" size={24} color={theme.accent} />
+              </Pressable>
+            </View>
             
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.defaultModulesRow}>
-              <Pressable
-                  style={[styles.quickInstallButton, { backgroundColor: theme.card, borderColor: theme.accent, marginRight: 10 }]}
-                  onPress={() => handleInstallModule(TIDAL_MODULE_CODE)}
-                >
-                   <Ionicons name="download-outline" size={20} color={theme.accent} />
-                   <Text style={[styles.quickInstallText, { color: theme.accent }]}>Tidal</Text>
-                </Pressable>
-
-              <Pressable
-                  style={[styles.quickInstallButton, { backgroundColor: theme.card, borderColor: theme.accent }]}
-                  onPress={() => handleInstallModule(YTDL_MODULE_CODE)}
-                >
-                   <Ionicons name="logo-youtube" size={20} color={theme.accent} />
-                   <Text style={[styles.quickInstallText, { color: theme.accent }]}>YTDL</Text>
-                </Pressable>
-
-              <Pressable
-                  style={[styles.quickInstallButton, { backgroundColor: theme.card, borderColor: theme.accent }]}
-                  onPress={() => handleInstallModule(SPARTDL_MODULE_CODE)}
-                >
-                   <Ionicons name="download-outline" size={20} color={theme.accent} />
-                   <Text style={[styles.quickInstallText, { color: theme.accent }]}>SpartDL</Text>
-                </Pressable>
-            </ScrollView>
-          </View>
+            <View style={{ height: 40 }} />
+          </ScrollView>
         </View>
       </Modal>
 
@@ -759,6 +834,153 @@ const styles = StyleSheet.create({
       padding: 12, borderRadius: 12, borderWidth: 1, gap: 8, marginTop: 8
   },
   quickInstallText: { fontWeight: '600' },
+  illustrationContainer: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    marginBottom: 16,
+  },
+  illustrationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 20,
+  },
+  serverIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  phoneIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  connectionLine: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  connectionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  selectFileButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 2,
+    gap: 12,
+    marginBottom: 32,
+  },
+  selectFileText: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  bundledSection: {
+    gap: 12,
+  },
+  bundledTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  bundledModuleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 16,
+    marginBottom: 12,
+  },
+  bundledIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bundledModuleInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  bundledModuleName: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  bundledModuleDesc: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  moduleDetailsCard: {
+    margin: 16,
+    padding: 20,
+    borderRadius: 16,
+    gap: 16,
+  },
+  moduleDetailsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  moduleDetailsIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moduleDetailsInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  moduleDetailsName: {
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  moduleDetailsVersion: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  moduleDetailsAuthor: {
+    fontSize: 14,
+    fontStyle: 'italic',
+  },
+  moduleDetailsLabels: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  moduleDetailLabel: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  moduleDetailLabelText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  moduleDetailsDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  toggleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 20,
+    borderRadius: 16,
+  },
   toggleSection: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingVertical: 16, borderBottomWidth: 1,

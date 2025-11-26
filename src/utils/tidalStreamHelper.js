@@ -84,6 +84,10 @@ export async function findAndStreamTrack(trackName, artistName, albumName = null
                 // Get artwork with fallback
                 const artwork = await getArtworkWithFallback(candidate);
 
+                // Get active module to set proper source
+                const activeModule = ModuleManager.getActiveModule();
+                const moduleId = activeModule?.id || 'tidal';
+
                 // Format track for player
                 const formattedTrack = {
                     name: candidate.title,
@@ -91,7 +95,7 @@ export async function findAndStreamTrack(trackName, artistName, albumName = null
                     album: candidate.album || 'Unknown Album',
                     duration: candidate.duration,
                     image: artwork,
-                    source: 'tidal',
+                    source: moduleId,
                     tidalId: candidate.id,
                     uri: streamData.streamUrl,
                     isStreaming: true,
@@ -121,12 +125,28 @@ export async function findAndStreamTrack(trackName, artistName, albumName = null
  */
 export async function getFreshTidalStream(tidalId) {
     try {
-        console.log('[Tidal Stream Helper] Getting fresh stream for ID:', tidalId);
+        // Get existing cache to check the track's original source
+        const cached = await getCachedTrack(tidalId);
+        
+        // Determine which module format to expect
+        // Prefer the cached track's source, fall back to active module
+        const activeModule = ModuleManager.getActiveModule();
+        const moduleId = cached?.source || activeModule?.id || 'unknown';
+        
+        // Only validate for numeric IDs if the track came from TIDAL module
+        // Other modules (YTDL, SpartDL) use Spotify URLs as IDs
+        if (moduleId === 'tidal') {
+            const isValidTidalId = /^\d+$/.test(String(tidalId));
+            if (!isValidTidalId) {
+                console.warn('[Stream Helper] Invalid TIDAL ID format (expected numeric):', tidalId);
+                return null; // Return null to force fallback to name-based search
+            }
+        }
+        
+        console.log(`[Stream Helper] Getting fresh stream for ID (${moduleId}):`, tidalId);
         const streamData = await ModuleManager.getTrackStreamUrl(tidalId, 'LOSSLESS');
         
         if (streamData && streamData.streamUrl) {
-            // Get existing cache to preserve metadata if possible
-            const cached = await getCachedTrack(tidalId);
             
             const updatedTrack = {
                 ...(cached || {}),
@@ -134,7 +154,7 @@ export async function getFreshTidalStream(tidalId) {
                 tidalId: tidalId,
                 // Ensure minimal fields are present if cache was empty
                 isStreaming: true,
-                source: 'tidal'
+                source: moduleId
             };
 
             // Update cache

@@ -27,9 +27,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import { ModuleManager } from './src/services/ModuleManager';
-import { YTDL_MODULE_CODE } from './src/services/ytdlModule';
 import * as Notifications from 'expo-notifications';
 import { clearArtworkCacheManually, getArtworkWithFallback } from './src/utils/artworkFallback';
+import { getPlayableTrack } from './src/utils/tidalStreamHelper';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -147,7 +147,7 @@ async function detectIntent(query) {
 
 
 function LibraryHomeScreen({ route, navigation }) {
-  const { theme, libraryAlbums, libraryArtists, library, playlists, addPlaylist, deletePlaylist, updatePlaylist, showNotification, pickLocalAudio, deleteAlbum, updateAlbum, openTrackPlayer, openArtistPage, addAlbumToQueue, addToQueue, currentTrack, insets, deleteTrack, updateTrack, addToLibrary, useTidalForUnowned, playerControls, clearAllData, addTrackToPlaylist } = route.params;
+  const { theme, libraryAlbums, libraryArtists, library, playlists, addPlaylist, deletePlaylist, updatePlaylist, showNotification, pickLocalAudio, deleteAlbum, updateAlbum, openTrackPlayer, openArtistPage, addAlbumToQueue, addToQueue, currentTrack, insets, deleteTrack, updateTrack, addToLibrary, useTidalForUnowned, playerControls, clearAllData, addTrackToPlaylist, reloadArtwork } = route.params;
   const { height: screenHeight } = useWindowDimensions();
 
   const [contextMenuAlbum, setContextMenuAlbum] = useState(null);
@@ -345,19 +345,19 @@ function LibraryHomeScreen({ route, navigation }) {
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 20 }}>
           <Text style={[styles.title, { color: theme.primaryText }]}>Library</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-            <Pressable onPress={() => navigation.navigate('Settings', { theme, library, libraryArtists, libraryAlbums, clearAllData, addPlaylist, showNotification })} hitSlop={10}>
-              <Ionicons name="settings-outline" size={26} color={theme.primaryText} />
-            </Pressable>
             <Pressable onPress={pickLocalAudio} hitSlop={10}>
               <Ionicons name="add" size={28} color={theme.primaryText} />
+            </Pressable>
+            <Pressable onPress={() => navigation.navigate('Settings', { theme, library, libraryArtists, libraryAlbums, clearAllData, addPlaylist, showNotification })} hitSlop={10}>
+              <Ionicons name="cog" size={26} color={theme.primaryText} />
             </Pressable>
           </View>
         </View>
 
         {/* Navigation Buttons */}
-        <View style={{ marginBottom: 20, paddingHorizontal: 16 }}>
+        <View style={[styles.libraryNavContainer, { backgroundColor: theme.card }]}>
           <Pressable
-            style={[styles.libraryNavButton, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
+            style={[styles.libraryNavButton, styles.libraryNavButtonFirst, { borderBottomColor: theme.border }]}
             onPress={() => navigation.navigate('LibraryPlaylists', {
               theme,
               playlists,
@@ -382,7 +382,7 @@ function LibraryHomeScreen({ route, navigation }) {
           </Pressable>
 
           <Pressable
-            style={[styles.libraryNavButton, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
+            style={[styles.libraryNavButton, { borderBottomColor: theme.border }]}
             onPress={() => navigation.navigate('LibraryArtists', { theme, libraryArtists, openArtistPage })}
           >
             <View style={styles.libraryNavIconContainer}>
@@ -393,7 +393,7 @@ function LibraryHomeScreen({ route, navigation }) {
           </Pressable>
 
           <Pressable
-            style={[styles.libraryNavButton, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
+            style={[styles.libraryNavButton, { borderBottomColor: theme.border }]}
             onPress={() => navigation.navigate('LibraryAlbums', { theme, libraryAlbums, onTrackPress: openTrackPlayer, reloadArtwork })}
           >
             <View style={styles.libraryNavIconContainer}>
@@ -404,7 +404,7 @@ function LibraryHomeScreen({ route, navigation }) {
           </Pressable>
 
           <Pressable
-            style={[styles.libraryNavButton, { backgroundColor: theme.card, borderBottomWidth: 0 }]}
+            style={[styles.libraryNavButton, styles.libraryNavButtonLast, { borderBottomWidth: 0 }]}
             onPress={() => navigation.navigate('LibrarySongs', { theme, library, onTrackPress: openTrackPlayer, addToQueue, deleteTrack, updateTrack, playlists, addTrackToPlaylist, showNotification })}
           >
             <View style={styles.libraryNavIconContainer}>
@@ -1114,8 +1114,6 @@ function AppContent() {
   useEffect(() => {
     const initModules = async () => {
       await ModuleManager.init();
-      // Auto-update YTDL module to latest version
-      await ModuleManager.installModule(YTDL_MODULE_CODE);
     };
     initModules();
   }, []);
@@ -2104,6 +2102,47 @@ function AppContent() {
     }
   };
 
+  // Handle playing tracks from search results with proper matching
+  const handleSearchTrackPress = async (rawTrack) => {
+    if (!useTidalForUnowned) {
+      console.log('[Search] Streaming is disabled');
+      showQueueNotification("You don't have this track imported!", 'error');
+      return;
+    }
+
+    try {
+      console.log('[Search] Attempting to play track:', rawTrack.name);
+
+      // Format track from Last.fm search result
+      const formattedTrack = {
+        name: rawTrack.name,
+        artist: typeof rawTrack.artist === 'string' ? rawTrack.artist : (rawTrack.artist?.name || 'Unknown Artist'),
+        album: rawTrack.album || 'Unknown Album',
+        duration: rawTrack.duration || 0,
+        image: pickImageUrl(rawTrack.image, 'extralarge'),
+        isFetching: true,
+      };
+
+      // Open player immediately with loading state
+      openTrackPlayer(formattedTrack, [formattedTrack], 0);
+
+      // Resolve playable track with proper matching
+      const playableTrack = await getPlayableTrack(formattedTrack, useTidalForUnowned);
+
+      // Update with resolved track
+      if (playableTrack && (playableTrack.uri || playableTrack.tidalId)) {
+        console.log('[Search] Successfully resolved track stream');
+        openTrackPlayer(playableTrack, [playableTrack], 0, false); // Don't re-expand player
+      } else {
+        console.warn('[Search] Could not find stream for track:', rawTrack.name);
+        showQueueNotification("Could not find stream for this track", 'error');
+      }
+    } catch (error) {
+      console.error('[Search] Error playing track:', error);
+      showQueueNotification("Error playing track", 'error');
+    }
+  };
+
   const handleTrackChange = (newTrack, newIndex, newQueue = null) => {
     setShouldAutoPlay(true); // Ensure auto-play continues for queue changes
     setCurrentTrack(newTrack);
@@ -2529,7 +2568,7 @@ function AppContent() {
       <Pressable
         key={index}
         style={styles.modernSearchResultItem}
-        onPress={() => openTrackPlayer(raw)}
+        onPress={() => handleSearchTrackPress(raw)}
       >
         <View style={styles.modernResultImageContainer}>
           {imageUrl ? (
@@ -2610,7 +2649,7 @@ function AppContent() {
     if (type === 'library') {
       const imageUrl = pickImageUrl(raw.image, 'large');
       return (
-        <Pressable onPress={() => openTrackPlayer(raw)}>
+        <Pressable onPress={() => handleSearchTrackPress(raw)}>
           <View style={[styles.row, { borderBottomColor: theme.border }]}>
             {imageUrl ? (
               <Image source={{ uri: imageUrl }} style={styles.squareThumbSmall} />
@@ -2634,7 +2673,7 @@ function AppContent() {
     // track
     const imageUrl = pickImageUrl(raw.image, 'large');
     return (
-      <Pressable onPress={() => openTrackPlayer(raw)}>
+      <Pressable onPress={() => handleSearchTrackPress(raw)}>
         <View style={[styles.row, { borderBottomColor: theme.border }]}>
           {imageUrl ? (
             <Image source={{ uri: imageUrl }} style={styles.squareThumbSmall} />
@@ -2699,7 +2738,6 @@ function AppContent() {
                       deleteTrack,
                       updateTrack,
                       addToQueue,
-                      addToQueue,
                       addAlbumToQueue,
                       currentTrack,
                       isPlaying: playerControls.isPlaying,
@@ -2707,6 +2745,7 @@ function AppContent() {
                       useTidalForUnowned,
                       playlists,
                       addTrackToPlaylist,
+                      reloadArtwork,
                     },
                   }}
                 />
@@ -3262,12 +3301,26 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  libraryNavContainer: {
+    marginHorizontal: 16,
+    marginBottom: 20,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
   libraryNavButton: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 14,
     paddingHorizontal: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  libraryNavButtonFirst: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  libraryNavButtonLast: {
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
   },
   libraryNavIconContainer: {
     width: 28,

@@ -209,11 +209,23 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
 
       } catch (initialError) {
         console.warn('[DownloadContext] Retry fetch for:', track.name);
-        const freshTrack = await getFreshTidalStream(playableTrack.tidalId);
+        let freshTrack = null;
+        
+        // Try ID-based refresh first if we have a tidalId
+        if (playableTrack.tidalId) {
+          freshTrack = await getFreshTidalStream(playableTrack.tidalId);
+        }
+        
+        // If ID-based refresh failed or returned null (invalid ID), try name-based search
+        if (!freshTrack || !freshTrack.uri) {
+          console.warn('[DownloadContext] ID-based refresh failed, trying name-based search');
+          freshTrack = await getPlayableTrack(track, true);
+        }
+        
         if (freshTrack && freshTrack.uri) {
           downloadResult = await performDownload(freshTrack.uri);
         } else {
-          throw new Error('No stream URL returned from fresh fetch');
+          throw new Error('No stream URL returned from fresh fetch or name search');
         }
       }
 
