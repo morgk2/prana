@@ -216,7 +216,8 @@ export default function LibrarySongs({ route, navigation }) {
                     { borderBottomColor: theme.border, backgroundColor: theme.background },
                     !isLocal && { opacity: 0.5 }
                 ]}
-                onPress={() => onTrackPress(item, library, index)}
+                onPress={() => onTrackPress(item, [item], 0)}
+                // TEMPORARILY DISABLED: Was onTrackPress(item, library, index) to play all songs as queue
             >
                 {imageUrl ? (
                     <Image source={{ uri: imageUrl }} style={styles.artwork} />

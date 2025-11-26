@@ -8,6 +8,8 @@ import { getArtworkWithFallback } from '../utils/artworkFallback';
 import { TIDAL_MODULE_CODE } from '../services/defaultTidalModule';
 import { YTDL_MODULE_CODE } from '../services/ytdlModule';
 import { SPARTDL_MODULE_CODE } from '../services/spartdlModule';
+import { SUBSONIC_MODULE_CODE } from '../services/subsonicModule';
+import { HIFI_MORGK_MODULE_CODE } from '../services/hifiMorgkModule';
 
 export default function ModulesPage({ route, navigation }) {
   const { theme, openTrackPlayer, useTidalForUnowned, toggleTidalForUnowned } = route.params;
@@ -35,6 +37,13 @@ export default function ModulesPage({ route, navigation }) {
   
   // Installation loading state
   const [installingModule, setInstallingModule] = useState(null);
+
+  // Subsonic configuration state
+  const [showSubsonicConfig, setShowSubsonicConfig] = useState(false);
+  const [subsonicServer, setSubsonicServer] = useState('');
+  const [subsonicUsername, setSubsonicUsername] = useState('');
+  const [subsonicPassword, setSubsonicPassword] = useState('');
+  const [testingConnection, setTestingConnection] = useState(false);
 
   useEffect(() => {
     loadModules();
@@ -126,6 +135,70 @@ export default function ModulesPage({ route, navigation }) {
       }
     } catch (err) {
       Alert.alert('Error', 'Failed to uninstall module');
+    }
+  };
+
+  const handleTestSubsonicConnection = async () => {
+    if (!subsonicServer || !subsonicUsername || !subsonicPassword) {
+      Alert.alert('Missing Information', 'Please fill in all fields');
+      return;
+    }
+
+    setTestingConnection(true);
+    try {
+      // Create a temporary module instance to test connection
+      const testCode = SUBSONIC_MODULE_CODE + `\nconst module = arguments[0];\nmodule.configure('${subsonicServer}', '${subsonicUsername}', '${subsonicPassword}');\nreturn module.ping();`;
+      const testFunc = new Function(testCode);
+      const module = testFunc();
+      
+      const isConnected = await module;
+      
+      if (isConnected) {
+        Alert.alert('Success!', 'Connection to Subsonic server successful');
+      } else {
+        Alert.alert('Connection Failed', 'Could not connect to Subsonic server');
+      }
+    } catch (error) {
+      Alert.alert('Connection Failed', error.message || 'Could not connect to Subsonic server');
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  const handleInstallSubsonic = async () => {
+    if (!subsonicServer || !subsonicUsername || !subsonicPassword) {
+      Alert.alert('Missing Information', 'Please fill in all fields');
+      return;
+    }
+
+    try {
+      setInstallingModule('subsonic');
+      
+      // Inject configuration into the module code
+      const configuredCode = SUBSONIC_MODULE_CODE.replace(
+        "let SUBSONIC_SERVER_URL = '';",
+        `let SUBSONIC_SERVER_URL = '${subsonicServer}';`
+      ).replace(
+        "let SUBSONIC_USERNAME = '';",
+        `let SUBSONIC_USERNAME = '${subsonicUsername}';`
+      ).replace(
+        "let SUBSONIC_PASSWORD = '';",
+        `let SUBSONIC_PASSWORD = '${subsonicPassword}';`
+      );
+
+      await ModuleManager.installModule(configuredCode);
+      await loadModules();
+
+      setShowSubsonicConfig(false);
+      setSubsonicServer('');
+      setSubsonicUsername('');
+      setSubsonicPassword('');
+      
+      Alert.alert('Success', 'Subsonic module installed successfully');
+    } catch (err) {
+      Alert.alert('Error', 'Failed to install module: ' + err.message);
+    } finally {
+      setInstallingModule(null);
     }
   };
 
@@ -247,7 +320,11 @@ export default function ModulesPage({ route, navigation }) {
       style={[styles.moduleCard, { backgroundColor: theme.card, borderColor: theme.border }]}
       onPress={() => {
         if (installingModule === module.id) return;
-        handleInstallDefaultModule(module, false);
+        if (module.requiresConfig && module.id === 'subsonic') {
+          setShowSubsonicConfig(true);
+        } else {
+          handleInstallDefaultModule(module, false);
+        }
       }}
     >
       <View style={styles.moduleHeaderRow}>
@@ -276,34 +353,46 @@ export default function ModulesPage({ route, navigation }) {
       )}
 
       <View style={styles.moduleActions}>
-        <Pressable
-          style={[styles.actionButton, { backgroundColor: installingModule === module.id ? theme.border : theme.accent }]}
-          onPress={() => {
-            if (installingModule === module.id) return;
-            handleInstallDefaultModule(module, false);
-          }}
-          disabled={installingModule === module.id}
-        >
-          {installingModule === module.id ? (
-            <ActivityIndicator size="small" color={theme.accent} />
-          ) : (
-            <Text style={[styles.actionButtonText, { color: '#fff' }]}>Install</Text>
-          )}
-        </Pressable>
-        <Pressable
-          style={[styles.actionButton, styles.uninstallButton, { backgroundColor: installingModule === module.id ? theme.border : theme.border }]}
-          onPress={() => {
-            if (installingModule === module.id) return;
-            handleInstallDefaultModule(module, true);
-          }}
-          disabled={installingModule === module.id}
-        >
-          {installingModule === module.id ? (
-            <ActivityIndicator size="small" color={theme.secondaryText} />
-          ) : (
-            <Text style={[styles.actionButtonText, { color: theme.primaryText }]}>Install & Open</Text>
-          )}
-        </Pressable>
+        {module.requiresConfig && module.id === 'subsonic' ? (
+          <Pressable
+            style={[styles.actionButton, { backgroundColor: theme.accent, flex: 2 }]}
+            onPress={() => setShowSubsonicConfig(true)}
+          >
+            <Ionicons name="settings-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
+            <Text style={[styles.actionButtonText, { color: '#fff' }]}>Configure & Install</Text>
+          </Pressable>
+        ) : (
+          <>
+            <Pressable
+              style={[styles.actionButton, { backgroundColor: installingModule === module.id ? theme.border : theme.accent }]}
+              onPress={() => {
+                if (installingModule === module.id) return;
+                handleInstallDefaultModule(module, false);
+              }}
+              disabled={installingModule === module.id}
+            >
+              {installingModule === module.id ? (
+                <ActivityIndicator size="small" color={theme.accent} />
+              ) : (
+                <Text style={[styles.actionButtonText, { color: '#fff' }]}>Install</Text>
+              )}
+            </Pressable>
+            <Pressable
+              style={[styles.actionButton, styles.uninstallButton, { backgroundColor: installingModule === module.id ? theme.border : theme.border }]}
+              onPress={() => {
+                if (installingModule === module.id) return;
+                handleInstallDefaultModule(module, true);
+              }}
+              disabled={installingModule === module.id}
+            >
+              {installingModule === module.id ? (
+                <ActivityIndicator size="small" color={theme.secondaryText} />
+              ) : (
+                <Text style={[styles.actionButtonText, { color: theme.primaryText }]}>Install & Open</Text>
+              )}
+            </Pressable>
+          </>
+        )}
       </View>
     </Pressable>
   );
@@ -416,6 +505,15 @@ export default function ModulesPage({ route, navigation }) {
             <View style={styles.modulesListContainer}>
               {/* Default Module Cards */}
               {renderDefaultModuleCard({
+                id: 'hifi-morgk',
+                name: 'HIFI MORGK',
+                version: '1.0.0',
+                labels: ['PERFECT', 'LOSSLESS', 'STREAM & DOWNLOAD'],
+                moduleCode: HIFI_MORGK_MODULE_CODE,
+                installed: false
+              })}
+              
+              {renderDefaultModuleCard({
                 id: 'tidal',
                 name: 'Tidal Music',
                 version: '1.0.0',
@@ -440,6 +538,16 @@ export default function ModulesPage({ route, navigation }) {
                 labels: ["I'm hosting it on a potato", "Great for downloading"],
                 moduleCode: SPARTDL_MODULE_CODE,
                 installed: false
+              })}
+              
+              {renderDefaultModuleCard({
+                id: 'subsonic',
+                name: 'Subsonic Server',
+                version: '1.0.0',
+                labels: ['Self-hosted', 'LOSSLESS quality', 'Local library'],
+                moduleCode: SUBSONIC_MODULE_CODE,
+                installed: false,
+                requiresConfig: true
               })}
             </View>
           )}
@@ -628,6 +736,20 @@ export default function ModulesPage({ route, navigation }) {
               
               <Pressable
                 style={[styles.bundledModuleCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+                onPress={() => handleInstallModule(HIFI_MORGK_MODULE_CODE)}
+              >
+                <View style={[styles.bundledIconContainer, { backgroundColor: theme.accent + '15' }]}>
+                  <Ionicons name="server" size={32} color={theme.accent} />
+                </View>
+                <View style={styles.bundledModuleInfo}>
+                  <Text style={[styles.bundledModuleName, { color: theme.primaryText }]}>HIFI MORGK</Text>
+                  <Text style={[styles.bundledModuleDesc, { color: theme.secondaryText }]}>PERFECT • LOSSLESS • STREAM & DOWNLOAD</Text>
+                </View>
+                <Ionicons name="download-outline" size={24} color={theme.accent} />
+              </Pressable>
+              
+              <Pressable
+                style={[styles.bundledModuleCard, { backgroundColor: theme.card, borderColor: theme.border }]}
                 onPress={() => handleInstallModule(TIDAL_MODULE_CODE)}
               >
                 <View style={[styles.bundledIconContainer, { backgroundColor: theme.accent + '15' }]}>
@@ -771,6 +893,141 @@ export default function ModulesPage({ route, navigation }) {
               4. Tap "Install" to add the module to your library.
             </Text>
             
+            <View style={{ height: 50 }} />
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Subsonic Configuration Modal */}
+      <Modal
+        visible={showSubsonicConfig}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowSubsonicConfig(false)}
+      >
+        <View style={[styles.modalContainer, { backgroundColor: theme.background }]}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => setShowSubsonicConfig(false)}>
+              <Text style={{ color: theme.secondaryText, fontSize: 16 }}>Cancel</Text>
+            </Pressable>
+            <Text style={[styles.modalTitle, { color: theme.primaryText, fontSize: 18 }]}>Configure Subsonic</Text>
+            <View style={{ width: 60 }} />
+          </View>
+          
+          <ScrollView style={styles.modalContent}>
+            {/* Server Icon */}
+            <View style={styles.illustrationContainer}>
+              <View style={[styles.serverIcon, { backgroundColor: theme.accent + '20' }]}>
+                <Ionicons name="server-outline" size={48} color={theme.accent} />
+              </View>
+            </View>
+
+            <Text style={[styles.helpText, { color: theme.secondaryText, marginBottom: 24, textAlign: 'center' }]}>
+              Connect to your personal Subsonic music server
+            </Text>
+
+            {/* Server URL Input */}
+            <View style={{ marginBottom: 16 }}>
+              <Text style={[styles.modalLabel, { color: theme.primaryText, marginBottom: 8 }]}>
+                Server URL
+              </Text>
+              <TextInput
+                style={[styles.codeInput, { 
+                  backgroundColor: theme.inputBackground, 
+                  color: theme.primaryText,
+                  height: 48,
+                  fontFamily: undefined
+                }]}
+                placeholder="https://music.example.com"
+                placeholderTextColor={theme.secondaryText}
+                value={subsonicServer}
+                onChangeText={setSubsonicServer}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+              />
+            </View>
+
+            {/* Username Input */}
+            <View style={{ marginBottom: 16 }}>
+              <Text style={[styles.modalLabel, { color: theme.primaryText, marginBottom: 8 }]}>
+                Username
+              </Text>
+              <TextInput
+                style={[styles.codeInput, { 
+                  backgroundColor: theme.inputBackground, 
+                  color: theme.primaryText,
+                  height: 48,
+                  fontFamily: undefined
+                }]}
+                placeholder="username"
+                placeholderTextColor={theme.secondaryText}
+                value={subsonicUsername}
+                onChangeText={setSubsonicUsername}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            {/* Password Input */}
+            <View style={{ marginBottom: 24 }}>
+              <Text style={[styles.modalLabel, { color: theme.primaryText, marginBottom: 8 }]}>
+                Password
+              </Text>
+              <TextInput
+                style={[styles.codeInput, { 
+                  backgroundColor: theme.inputBackground, 
+                  color: theme.primaryText,
+                  height: 48,
+                  fontFamily: undefined
+                }]}
+                placeholder="password"
+                placeholderTextColor={theme.secondaryText}
+                value={subsonicPassword}
+                onChangeText={setSubsonicPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+              />
+            </View>
+
+            {/* Test Connection Button */}
+            <Pressable
+              style={[styles.modalInstallButton, { 
+                backgroundColor: theme.border,
+                marginBottom: 12
+              }]}
+              onPress={handleTestSubsonicConnection}
+              disabled={testingConnection}
+            >
+              {testingConnection ? (
+                <ActivityIndicator color={theme.accent} />
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons name="checkmark-circle-outline" size={20} color={theme.primaryText} />
+                  <Text style={[styles.modalInstallButtonText, { color: theme.primaryText }]}>
+                    Test Connection
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+
+            {/* Install Button */}
+            <Pressable
+              style={[styles.modalInstallButton, { backgroundColor: theme.accent }]}
+              onPress={handleInstallSubsonic}
+              disabled={installingModule === 'subsonic'}
+            >
+              {installingModule === 'subsonic' ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons name="download-outline" size={20} color="#fff" />
+                  <Text style={styles.modalInstallButtonText}>Install Module</Text>
+                </View>
+              )}
+            </Pressable>
+
             <View style={{ height: 50 }} />
           </ScrollView>
         </View>

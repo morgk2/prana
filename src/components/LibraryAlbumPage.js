@@ -527,6 +527,14 @@ export default function LibraryAlbumPage({ route, navigation }) {
   };
 
   const confirmAndPlayTrack = (track, index, isLocal) => {
+    // TEMPORARILY DISABLED: Always play single track only (no queue prompt)
+    if (isLocal) {
+      if (onTrackPress) onTrackPress(track, [track], 0);
+    } else {
+      handleUnownedTrackPress(track, index, false);
+    }
+    
+    /* ORIGINAL CODE - RE-ENABLE LATER
     Alert.alert(
       "Play Track",
       "Add the rest of the album to the queue?",
@@ -546,16 +554,16 @@ export default function LibraryAlbumPage({ route, navigation }) {
           onPress: () => {
             if (isLocal) {
               if (addAlbumToQueue) {
-                const remainingTracks = allTracks.filter((_, idx) => idx !== index);
-                const tracksToAdd = [track, ...remainingTracks];
+                // Add clicked track + all tracks after it (not before)
+                const tracksToAdd = allTracks.slice(index);
                 addAlbumToQueue(tracksToAdd, true);
               } else if (onTrackPress) {
                 onTrackPress(track, allTracks, index);
               }
             } else {
               if (addAlbumToQueue) {
-                const remainingTracks = allTracks.filter((_, idx) => idx !== index);
-                const tracksToAdd = [track, ...remainingTracks];
+                // Add clicked track + all tracks after it (not before)
+                const tracksToAdd = allTracks.slice(index);
                 addAlbumToQueue(tracksToAdd, true);
               } else {
                 handleUnownedTrackPress(track, index, true);
@@ -569,6 +577,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
         }
       ]
     );
+    */
   };
 
   const handleEditTrack = () => {

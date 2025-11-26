@@ -29,6 +29,7 @@ import * as Haptics from 'expo-haptics';
 import { ModuleManager } from './src/services/ModuleManager';
 import * as Notifications from 'expo-notifications';
 import { clearArtworkCacheManually, getArtworkWithFallback } from './src/utils/artworkFallback';
+import { clearCache as clearTidalCache } from './src/utils/tidalCache';
 import { getPlayableTrack } from './src/utils/tidalStreamHelper';
 
 Notifications.setNotificationHandler({
@@ -621,6 +622,29 @@ function CachePage({ route, navigation }) {
     );
   };
 
+  const handleClearStreamCache = () => {
+    Alert.alert(
+      'Clear Stream Cache',
+      'This will clear all cached streaming links. Use this if songs are failing to play or if you switched streaming quality.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await clearTidalCache();
+              Alert.alert('Success', 'Stream cache cleared successfully');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to clear stream cache');
+              console.error('Error clearing stream cache:', error);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const handleClearData = () => {
     Alert.alert(
       'Clear All Data',
@@ -723,6 +747,16 @@ function CachePage({ route, navigation }) {
         <View style={[styles.settingsSection, { marginTop: 20 }]}>
           <Text style={[styles.sectionHeader, { color: theme.primaryText, marginBottom: 12 }]}>Cache Management</Text>
           
+          <Pressable
+            style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border, justifyContent: 'center' }]}
+            onPress={handleClearStreamCache}
+          >
+            <Text style={{ color: theme.accent, fontSize: 17, fontWeight: '600' }}>Clear Stream Cache</Text>
+          </Pressable>
+          <Text style={{ paddingHorizontal: 16, color: theme.secondaryText, fontSize: 12, marginTop: 8, textAlign: 'center', marginBottom: 20 }}>
+            Fix playback issues by removing cached streaming links.
+          </Text>
+
           <Pressable
             style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border, justifyContent: 'center' }]}
             onPress={handleClearArtworkCache}

@@ -8,6 +8,17 @@ import { getArtworkWithFallback } from './artworkFallback';
 import { getCachedTrack, saveToCache, removeFromCache, getCachedTrackByMetadata } from './tidalCache';
 
 /**
+ * Normalize string for comparison (lowercase, remove smart quotes, trim)
+ */
+function normalizeString(str) {
+    if (!str) return '';
+    return str.toLowerCase()
+        .replace(/[\u2018\u2019]/g, "'") // Replace smart single quotes
+        .replace(/[\u201C\u201D]/g, '"') // Replace smart double quotes
+        .trim();
+}
+
+/**
  * Search for a track on Tidal and get its stream URL
  * @param {string} trackName - Track title
  * @param {string} artistName - Artist name
@@ -25,7 +36,14 @@ export async function findAndStreamTrack(trackName, artistName, albumName = null
         } else {
             query = trackName;
         }
-
+        
+        // Normalize query for logging/debugging (optional, but good practice)
+        // But we send the original query to the module as it might handle fuzzy search
+        // actually, let's sanitize the query sent to the module too? 
+        // Some servers/modules might prefer straight quotes.
+        // But if we modify the query, we might miss exact matches if the server supports smart quotes.
+        // Let's keep the query as is for the module search, but rely on our robust filtering.
+        
         console.log('[Tidal Stream Helper] Searching for:', query, '(Track:', trackName, 'Artist:', artistName || 'N/A', ')');
 
         // Search via ModuleManager
@@ -40,13 +58,13 @@ export async function findAndStreamTrack(trackName, artistName, albumName = null
         // Filter candidates that match the artist (if provided)
         let candidates = tracks;
         if (artistName && artistName !== 'Unknown Artist') {
-            const searchArtist = artistName.toLowerCase();
-            const searchTitle = trackName.toLowerCase();
+            const searchArtist = normalizeString(artistName);
+            const searchTitle = normalizeString(trackName);
 
             // Prioritize exact matches
             candidates = tracks.filter(track => {
-                const trackArtist = (typeof track.artist === 'string' ? track.artist : track.artist?.name || '').toLowerCase();
-                const trackTitle = track.title.toLowerCase();
+                const trackArtist = normalizeString(typeof track.artist === 'string' ? track.artist : track.artist?.name || '');
+                const trackTitle = normalizeString(track.title);
                 // Require BOTH artist and title to match to avoid wrong songs from same artist
                 return trackArtist.includes(searchArtist) && trackTitle.includes(searchTitle); 
             });
@@ -54,7 +72,7 @@ export async function findAndStreamTrack(trackName, artistName, albumName = null
             // If no strict matches, try title match only (in case artist name varies e.g. "Feat.")
             if (candidates.length === 0) {
                  candidates = tracks.filter(track => {
-                    const trackTitle = track.title.toLowerCase();
+                    const trackTitle = normalizeString(track.title);
                     return trackTitle.includes(searchTitle);
                  });
             }
