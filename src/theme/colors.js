@@ -17,7 +17,7 @@ export const colors = {
     headerTitle: '#000',
     backButton: 'rgba(0,0,0,0.1)',
     backButtonText: '#000',
-    accent: '#007AFF',
+    accent: '#000000',
   },
   dark: {
     background: '#000000',

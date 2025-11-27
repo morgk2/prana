@@ -136,7 +136,7 @@ function detectIntent(query, artistResults, albumResults, trackResults) {
 
 
 function LibraryHomeScreen({ route, navigation }) {
-  const { theme, libraryAlbums, libraryArtists, library, playlists, addPlaylist, deletePlaylist, updatePlaylist, showNotification, pickLocalAudio, deleteAlbum, updateAlbum, openTrackPlayer, openArtistPage, addAlbumToQueue, addToQueue, currentTrack, insets, deleteTrack, updateTrack, addToLibrary, useTidalForUnowned, playerControls, clearAllData, addTrackToPlaylist, reloadArtwork } = route.params;
+  const { theme, libraryAlbums, libraryArtists, library, playlists, addPlaylist, deletePlaylist, updatePlaylist, showNotification, pickLocalAudio, deleteAlbum, updateAlbum, openTrackPlayer, openArtistPage, addAlbumToQueue, addToQueue, currentTrack, insets, deleteTrack, updateTrack, addToLibrary, useTidalForUnowned, playerControls, clearAllData, addTrackToPlaylist, reloadArtwork, userTheme, setUserTheme, playerColorMode, setPlayerColorMode } = route.params;
   const { height: screenHeight } = useWindowDimensions();
 
   const [contextMenuAlbum, setContextMenuAlbum] = useState(null);
@@ -337,7 +337,7 @@ function LibraryHomeScreen({ route, navigation }) {
             <Pressable onPress={pickLocalAudio} hitSlop={10}>
               <Ionicons name="add" size={28} color={theme.primaryText} />
             </Pressable>
-            <Pressable onPress={() => navigation.navigate('Settings', { theme, library, libraryArtists, libraryAlbums, clearAllData, addPlaylist, showNotification })} hitSlop={10}>
+            <Pressable onPress={() => navigation.navigate('Settings', { theme, library, libraryArtists, libraryAlbums, clearAllData, addPlaylist, showNotification, userTheme, setUserTheme, playerColorMode, setPlayerColorMode })} hitSlop={10}>
               <Ionicons name="cog" size={26} color={theme.primaryText} />
             </Pressable>
           </View>
@@ -923,7 +923,7 @@ function AppearancePage({ route, navigation }) {
 
 // Settings Page
 function SettingsPage({ route, navigation }) {
-  const { theme, library, libraryArtists, libraryAlbums, clearAllData } = route.params;
+  const { theme, library, libraryArtists, libraryAlbums, clearAllData, userTheme, setUserTheme, playerColorMode, setPlayerColorMode } = route.params;
 
   return (
     <View style={[styles.settingsPageContainer, { backgroundColor: theme.background }]}>
@@ -939,7 +939,7 @@ function SettingsPage({ route, navigation }) {
         <View style={styles.settingsSection}>
           <Pressable
             style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
-            onPress={() => navigation.navigate('Appearance', { theme })}
+            onPress={() => navigation.navigate('Appearance', { theme, userTheme, setUserTheme, playerColorMode, setPlayerColorMode })}
           >
             <View style={styles.settingsRowLeft}>
               <Ionicons name="color-palette-outline" size={24} color={theme.primaryText} />
@@ -2514,6 +2514,10 @@ function AppContent() {
             playerControls,
             clearAllData,
             reloadArtwork,
+            userTheme,
+            setUserTheme: updateUserTheme,
+            playerColorMode,
+            setPlayerColorMode: updatePlayerColorMode,
           },
         }}
       />

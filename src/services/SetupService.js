@@ -22,6 +22,8 @@ export async function setupPlayer() {
                 Capability.Play,
                 Capability.Pause,
                 Capability.SkipToNext,
+                Capability.SkipToPrevious,
+                Capability.SeekTo,
             ],
             progressUpdateEventInterval: 1,
         });
