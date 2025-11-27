@@ -790,7 +790,15 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
 
     // 1. Enable/Disable Controls & Event Listeners
     useEffect(() => {
+        let listener = null;
+        let isCleanedUp = false;
+
         const setupMediaControls = async () => {
+            // Wait a bit to ensure audio session is fully configured
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            if (isCleanedUp) return;
+
             try {
                 await MediaControl.enableMediaControls({
                     play: true,
@@ -801,45 +809,58 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                     skipForward: false,
                     skipBackward: false,
                 });
+                console.log('Media controls enabled successfully');
             } catch (e) {
                 console.warn('Failed to enable media controls:', e);
+                // Don't throw - allow player to work without media controls
+                return;
+            }
+
+            if (isCleanedUp) return;
+
+            try {
+                listener = MediaControl.addListener((event) => {
+                    try {
+                        switch (event.command) {
+                            case Command.PLAY:
+                                togglePlayRef.current?.();
+                                break;
+                            case Command.PAUSE:
+                                togglePlayRef.current?.();
+                                break;
+                            case Command.NEXT_TRACK:
+                                skipNextRef.current?.();
+                                break;
+                            case Command.PREVIOUS_TRACK:
+                                skipPreviousRef.current?.();
+                                break;
+                            case Command.SEEK:
+                                if (event.data?.position !== undefined) {
+                                    onSeekCompleteRef.current?.(event.data.position);
+                                }
+                                break;
+                            default:
+                                break;
+                        }
+                    } catch (error) {
+                        console.warn('Error handling media control command:', error);
+                    }
+                });
+            } catch (error) {
+                console.warn('Error setting up media control listener:', error);
             }
         };
 
         setupMediaControls();
 
-        const listener = MediaControl.addListener((event) => {
-            try {
-                switch (event.command) {
-                    case Command.PLAY:
-                        togglePlayRef.current?.();
-                        break;
-                    case Command.PAUSE:
-                        togglePlayRef.current?.();
-                        break;
-                    case Command.NEXT_TRACK:
-                        skipNextRef.current?.();
-                        break;
-                    case Command.PREVIOUS_TRACK:
-                        skipPreviousRef.current?.();
-                        break;
-                    case Command.SEEK:
-                        if (event.data?.position !== undefined) {
-                            onSeekCompleteRef.current?.(event.data.position);
-                        }
-                        break;
-                    default:
-                        break;
-                }
-            } catch (error) {
-                console.warn('Error handling media control command:', error);
-            }
-        });
-
         return () => {
+            isCleanedUp = true;
             try {
-                listener.remove();
+                if (listener) {
+                    listener.remove();
+                }
                 MediaControl.disableMediaControls();
+                console.log('Media controls cleaned up');
             } catch (error) {
                 console.warn('Error cleaning up media controls:', error);
             }

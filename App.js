@@ -1628,7 +1628,10 @@ function AppContent() {
           playsInSilentModeIOS: true,
           shouldDuckAndroid: true,
           playThroughEarpieceAndroid: false,
+          interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+          interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
         });
+        console.log('Audio session configured successfully');
       } catch (e) {
         console.warn('Failed to configure audio', e);
       }
