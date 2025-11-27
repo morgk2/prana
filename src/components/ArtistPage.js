@@ -10,7 +10,11 @@ import {
   ActivityIndicator,
   Animated,
   ImageBackground,
+
   Pressable,
+  Dimensions,
+  PanResponder,
+  TouchableOpacity,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,9 +29,173 @@ function pickImageUrl(images, preferredSize = 'large') {
   return any ? any['#text'] : null;
 }
 
-const HEADER_MAX_HEIGHT = 280;
+const HEADER_MAX_HEIGHT = 400;
 const HEADER_MIN_HEIGHT = 80;
 const HEADER_SCROLL_DISTANCE = HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT;
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const COVER_SIZE = 180; // Larger cover size
+const SPACING = 140;
+
+const Coverflow = ({ data, onAlbumPress, theme, enabled, setScrollEnabled }) => {
+  const [currentIndex, setCurrentIndex] = useState(data.length > 0 ? Math.floor(data.length / 2) : 0);
+  const scrollX = useRef(new Animated.Value(data.length > 0 ? Math.floor(data.length / 2) : 0)).current;
+  const modeAnim = useRef(new Animated.Value(enabled ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(modeAnim, {
+      toValue: enabled ? 1 : 0,
+      duration: 500,
+      useNativeDriver: false,
+    }).start();
+  }, [enabled]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 10,
+      onPanResponderGrant: () => {
+        scrollX.stopAnimation();
+        scrollX.extractOffset();
+        if (setScrollEnabled) setScrollEnabled(false);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        scrollX.setValue(-gestureState.dx / 150);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        scrollX.flattenOffset();
+
+        // Calculate momentum based on velocity
+        // The divisor (e.g., 2) controls how "heavy" the friction feels.
+        // Higher divisor = less distance traveled for the same flick.
+        const velocityFactor = -gestureState.vx * 1.5;
+        let targetIndex = Math.round(scrollX._value + velocityFactor);
+
+        // Ensure we don't go out of bounds
+        targetIndex = Math.max(0, Math.min(targetIndex, data.length - 1));
+
+        setCurrentIndex(targetIndex);
+
+        Animated.spring(scrollX, {
+          toValue: targetIndex,
+          useNativeDriver: false,
+          friction: 6,  // Slightly lower friction for a "looser" feel
+          tension: 50,
+        }).start();
+        if (setScrollEnabled) setScrollEnabled(true);
+      },
+    })
+  ).current;
+
+  useEffect(() => {
+    if (data.length > 0 && !isNaN(currentIndex)) {
+      Animated.spring(scrollX, {
+        toValue: currentIndex,
+        useNativeDriver: false,
+        friction: 7,
+        tension: 40,
+      }).start();
+    }
+  }, [currentIndex, data.length]);
+
+  const next = () => {
+    if (data.length === 0) return;
+    setCurrentIndex(prev => Math.min(prev + 1, data.length - 1));
+  };
+
+  const prev = () => {
+    if (data.length === 0) return;
+    setCurrentIndex(prev => Math.max(prev - 1, 0));
+  };
+
+  const jumpTo = (index) => setCurrentIndex(index);
+
+  if (!data || data.length === 0) return null;
+
+  return (
+    <View>
+      <View style={{ height: 280, justifyContent: 'center', alignItems: 'center', marginVertical: 10 }} {...panResponder.panHandlers}>
+        {data.map((album, index) => {
+          const isActive = index === currentIndex;
+          // Limit the range of rendered items for performance
+          if (Math.abs(currentIndex - index) > 4) return null;
+
+          const inputRange = [index - 2, index - 1, index, index + 1, index + 2];
+
+          // Rotation
+          const rawRotate = scrollX.interpolate({ inputRange, outputRange: [-60, -60, 0, 60, 60], extrapolate: 'clamp' });
+          const effectiveRotate = Animated.multiply(rawRotate, modeAnim);
+          const rotateY = effectiveRotate.interpolate({ inputRange: [-360, 360], outputRange: ['-360deg', '360deg'] });
+
+          // Scale
+          // Flat: 1, Coverflow: 0.8 (except center)
+          // Diff is -0.2 for non-center items
+          const scaleDiff = scrollX.interpolate({ inputRange, outputRange: [-0.2, -0.2, 0, -0.2, -0.2], extrapolate: 'clamp' });
+          const effectiveScaleDiff = Animated.multiply(scaleDiff, modeAnim);
+          const scale = Animated.add(1, effectiveScaleDiff);
+
+          // TranslateX
+          // Flat spacing: 200 (180 + 20)
+          // Coverflow spacing: Compressed
+          const flatTranslate = scrollX.interpolate({ inputRange, outputRange: [400, 200, 0, -200, -400] });
+          const coverTranslate = scrollX.interpolate({ inputRange, outputRange: [130, 100, 0, -100, -130], extrapolate: 'clamp' });
+          const translateX = Animated.add(flatTranslate, Animated.multiply(modeAnim, Animated.subtract(coverTranslate, flatTranslate)));
+
+          // Opacity
+          const opacityDiff = scrollX.interpolate({ inputRange, outputRange: [-0.4, -0.2, 0, -0.2, -0.4], extrapolate: 'clamp' });
+          const effectiveOpacityDiff = Animated.multiply(opacityDiff, modeAnim);
+          const opacity = Animated.add(1, effectiveOpacityDiff);
+
+          const zIndex = 100 - Math.abs(currentIndex - index);
+
+          const imageUrl = pickImageUrl(album.image, 'extralarge') || pickImageUrl(album.image, 'large');
+
+          return (
+            <Animated.View
+              key={`${album.mbid || album.name}-${index}`}
+              style={[
+                {
+                  position: 'absolute',
+                  width: COVER_SIZE,
+                  height: COVER_SIZE,
+                  zIndex,
+                  opacity,
+                  transform: [{ perspective: 800 }, { translateX }, { rotateY }, { scale }]
+                }
+              ]}
+            >
+              <TouchableOpacity
+                activeOpacity={0.9}
+                onPress={() => {
+                  if (isActive) {
+                    onAlbumPress(album);
+                  } else {
+                    jumpTo(index);
+                  }
+                }}
+                style={{ width: '100%', height: '100%' }}
+              >
+                {imageUrl ? (
+                  <Image source={{ uri: imageUrl }} style={{ width: COVER_SIZE, height: COVER_SIZE, borderRadius: 8 }} />
+                ) : (
+                  <View style={{ width: COVER_SIZE, height: COVER_SIZE, borderRadius: 8, backgroundColor: theme.card, justifyContent: 'center', alignItems: 'center' }}>
+                    <Ionicons name="musical-note" size={40} color={theme.secondaryText} />
+                  </View>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+          );
+        })}
+      </View>
+      <View style={{ alignItems: 'center', marginTop: -10, marginBottom: 20 }}>
+        <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.primaryText }} numberOfLines={1}>
+          {data[currentIndex]?.name}
+        </Text>
+        <Text style={{ fontSize: 14, color: theme.secondaryText }}>
+          {data[currentIndex]?.release_date ? data[currentIndex].release_date.substring(0, 4) : 'Single/EP'}
+        </Text>
+      </View>
+    </View>
+  );
+};
 
 const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
 
@@ -37,6 +205,7 @@ export default function ArtistPage({ route, navigation }) {
   const [topTracks, setTopTracks] = useState([]);
   const [topAlbums, setTopAlbums] = useState([]);
   const [singles, setSingles] = useState([]);
+  const [eps, setEps] = useState([]);
   const [artistInfo, setArtistInfo] = useState(null);
   const [similarArtists, setSimilarArtists] = useState([]);
   const [loading, setLoading] = useState(initialLoading || false);
@@ -46,6 +215,8 @@ export default function ArtistPage({ route, navigation }) {
   const [contextMenuType, setContextMenuType] = useState('filter'); // 'filter' | 'remove' | 'album'
   const [selectedAlbum, setSelectedAlbum] = useState(null);
   const [expandedTracks, setExpandedTracks] = useState(false);
+  const [isCoverflow, setIsCoverflow] = useState(false);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
 
   // Check if artist is already saved in the passed libraryArtists
   const isSavedInitially = libraryArtists.some(a => a.name === artist.name);
@@ -153,29 +324,16 @@ export default function ArtistPage({ route, navigation }) {
     }
   };
 
-  const playOwnedArtistTracks = () => {
-    if (!onTrackPress) return;
+  const handlePlay = () => {
+    if (!onTrackPress || topTracks.length === 0) return;
+    // Play first track, pass full queue and index 0
+    onTrackPress(topTracks[0], topTracks, 0);
+  };
 
-    const targetName = (artist.name || '').toLowerCase().trim();
-
-    const ownedTracks = library.filter((t) => {
-      if (!t || !t.isLocal) return false;
-      const artistName = (
-        t.albumArtist ||
-        (t.artist && t.artist.name) ||
-        t.artist ||
-        ''
-      )
-        .toLowerCase()
-        .trim();
-      return artistName === targetName;
-    });
-
-    if (!ownedTracks.length) return;
-
-    const shuffled = [...ownedTracks].sort(() => Math.random() - 0.5);
-    const first = shuffled[0];
-    onTrackPress(first);
+  const handleShuffle = () => {
+    if (!onTrackPress || topTracks.length === 0) return;
+    const shuffled = [...topTracks].sort(() => Math.random() - 0.5);
+    onTrackPress(shuffled[0], shuffled, 0);
   };
 
   const closeContextMenu = () => {
@@ -193,61 +351,33 @@ export default function ArtistPage({ route, navigation }) {
 
   const addAlbumToLibrary = async () => {
     if (!selectedAlbum || !addToLibrary) return;
-    
-    // We need to fetch album tracks first
-    // Assuming we can't easily fetch them here without duplicating logic, 
-    // let's just open the album page which handles loading tracks, 
-    // OR better, create a simplified track object if we don't have tracks yet.
-    // But user wants to "Show in library".
-    // The best way to "Show in library" is to add it.
-    
-    // Ideally we would fetch the album tracks here.
-    // For now, let's assume we need to open the album page to add it properly,
-    // or we just add a placeholder if that's acceptable.
-    // But to actually populate the library we need tracks.
-    // Let's trigger the openAlbumPage but perhaps auto-add?
-    // Or just add the album metadata? Library relies on tracks.
-    
-    // Strategy: Fetch tracks then add.
-    // Reuse the getAlbumInfo logic from App.js? We don't have it here.
-    // We only have `addToLibrary`.
-    
-    // Hack: Just navigate to the album page so the user can see it and download/add it?
-    // No, user asked for an option in the menu.
-    
-    // Let's try to use the same API call as App.js if available.
-    // We imported getArtistTopTracks but not getAlbumInfo.
-    // Let's import it.
-    
+
     try {
-        setLoading(true);
-        const albumInfo = await getAlbumInfo({
-            artist: selectedAlbum.artist?.name || selectedAlbum.artist,
+      setLoading(true);
+      const albumInfo = await getAlbumInfo({
+        artist: selectedAlbum.artist?.name || selectedAlbum.artist,
+        album: selectedAlbum.name,
+        mbid: selectedAlbum.mbid,
+      });
+
+      const tracks = albumInfo?.tracks?.track ?? [];
+      if (tracks.length > 0) {
+        for (const track of tracks) {
+          const trackToAdd = {
+            name: track.name,
+            artist: typeof track.artist === 'object' ? track.artist.name : track.artist,
             album: selectedAlbum.name,
-            mbid: selectedAlbum.mbid,
-        });
-        
-        const tracks = albumInfo?.tracks?.track ?? [];
-        if (tracks.length > 0) {
-            for (const track of tracks) {
-                const trackToAdd = {
-                    name: track.name,
-                    artist: typeof track.artist === 'object' ? track.artist.name : track.artist,
-                    album: selectedAlbum.name,
-                    image: selectedAlbum.image,
-                    mbid: track.mbid,
-                    // Add other metadata if needed
-                };
-                // Add as remote track (no uri yet)
-                await addToLibrary(trackToAdd, null, track.name);
-            }
-            closeContextMenu();
-            // Maybe show success toast?
+            image: selectedAlbum.image,
+            mbid: track.mbid,
+          };
+          await addToLibrary(trackToAdd, null, track.name);
         }
+        closeContextMenu();
+      }
     } catch (e) {
-        console.warn('Failed to add album to library', e);
+      console.warn('Failed to add album to library', e);
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -260,15 +390,22 @@ export default function ArtistPage({ route, navigation }) {
       try {
         const [tracks, albums, artistSingles, info, similar] = await Promise.all([
           getArtistTopTracks(artist.name, { limit: 30 }),
-          getArtistTopAlbums(artist.name, { limit: 10 }),
-          getArtistSingles(artist.name, { limit: 20 }),
+          getArtistTopAlbums(artist.name, { limit: 50 }),
+          getArtistSingles(artist.name, { limit: 50 }),
           getArtistInfo(artist.name),
           getRelatedArtists(artist.name, { limit: 10 }),
         ]);
 
         setTopTracks(tracks ?? []);
         setTopAlbums(albums ?? []);
-        setSingles(artistSingles ?? []);
+
+        const allSingles = artistSingles ?? [];
+        // Filter EPs: > 1 track
+        const detectedEps = allSingles.filter(s => s.total_tracks > 1);
+        const trueSingles = allSingles.filter(s => s.total_tracks === 1);
+
+        setSingles(trueSingles);
+        setEps(detectedEps);
         setArtistInfo(info);
         setSimilarArtists(similar ?? []);
       } catch (e) {
@@ -298,7 +435,7 @@ export default function ArtistPage({ route, navigation }) {
     const albumArtist = (album.artist?.name || album.artist || '').toLowerCase().trim();
 
     if (!albumName || albumName === 'unknown album' || !albumArtist || albumArtist === 'unknown artist') {
-        return false;
+      return false;
     }
 
     return library.some(libTrack => {
@@ -308,11 +445,11 @@ export default function ArtistPage({ route, navigation }) {
     });
   };
 
-  const scrollY = new Animated.Value(0);
+  const scrollY = useRef(new Animated.Value(0)).current;
 
   const headerTranslate = scrollY.interpolate({
     inputRange: [0, HEADER_SCROLL_DISTANCE],
-    outputRange: [0, -HEADER_SCROLL_DISTANCE],
+    outputRange: [0, 0],
     extrapolate: 'clamp',
   });
 
@@ -325,13 +462,13 @@ export default function ArtistPage({ route, navigation }) {
 
   const imageOpacity = scrollY.interpolate({
     inputRange: [0, HEADER_SCROLL_DISTANCE / 2],
-    outputRange: [1, 0],
+    outputRange: [1, 1],
     extrapolate: 'clamp',
   });
 
   const imageTranslate = scrollY.interpolate({
     inputRange: [0, HEADER_SCROLL_DISTANCE],
-    outputRange: [0, HEADER_MIN_HEIGHT],
+    outputRange: [0, 0],
     extrapolate: 'clamp',
   });
 
@@ -464,6 +601,7 @@ export default function ArtistPage({ route, navigation }) {
     const displayTracks = showOwnedOnly ? topTracks.filter(isTrackImported) : topTracks;
     const displayAlbums = showOwnedOnly ? topAlbums.filter(isAlbumImported) : topAlbums;
     const displaySingles = showOwnedOnly ? singles.filter(isAlbumImported) : singles;
+    const displayEps = showOwnedOnly ? eps.filter(isAlbumImported) : eps;
 
     return (
       <>
@@ -493,10 +631,10 @@ export default function ArtistPage({ route, navigation }) {
                       </Text>
                     </View>
                     {(() => {
-                        const localTrack = getLocalTrack(t);
-                        return localTrack?.favorite ? (
-                            <Ionicons name="star" size={16} color={theme.primaryText} style={{ marginLeft: 8 }} />
-                        ) : null;
+                      const localTrack = getLocalTrack(t);
+                      return localTrack?.favorite ? (
+                        <Ionicons name="star" size={16} color={theme.primaryText} style={{ marginLeft: 8 }} />
+                      ) : null;
                     })()}
                     {imported && (
                       <Ionicons
@@ -521,154 +659,100 @@ export default function ArtistPage({ route, navigation }) {
             )}
           </View>
         )}
+
+        {/* Albums */}
         {displayAlbums.length > 0 && (
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Albums</Text>
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingRight: 16 }}
-            >
-              {displayAlbums.map((a, index) => {
-                const imageUrl = pickImageUrl(a.image, 'extralarge') || pickImageUrl(a.image, 'large');
-                const imported = isAlbumImported(a);
-                return (
-                  <Pressable 
-                      key={`artist-album-${a.mbid || a.name}-${index}`}
-                      onPress={() => openAlbumPage && openAlbumPage(a)}
-                      onLongPress={() => {
-                          if (!imported) {
-                              openContextMenu('album', a);
-                          }
-                      }}
-                      delayLongPress={200}
-                      style={styles.albumCard}
-                  >
-                    {imageUrl ? (
-                      <Image source={{ uri: imageUrl }} style={styles.albumImage} />
-                    ) : (
-                      <View style={[styles.albumImage, { backgroundColor: theme.card, justifyContent: 'center', alignItems: 'center' }]}>
-                        <Ionicons name="musical-note" size={40} color={theme.secondaryText} />
-                      </View>
-                    )}
-                    
-                    <Text style={[styles.albumTitle, { color: theme.primaryText }]} numberOfLines={1}>
-                      {a.name}
-                    </Text>
-                    <Text style={[styles.albumSubtitle, { color: theme.secondaryText }]} numberOfLines={1}>
-                      {a.artist?.name ?? a.artist}
-                    </Text>
-
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                      {imported && (
-                          <Ionicons
-                          name="checkmark-circle"
-                          size={16}
-                          color={theme.primaryText}
-                          style={{ marginRight: 8 }}
-                          />
-                      )}
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={[styles.sectionTitle, { color: theme.primaryText, marginBottom: 0 }]}>Albums</Text>
+              <TouchableOpacity onPress={() => setIsCoverflow(!isCoverflow)}>
+                <Ionicons name={isCoverflow ? "grid-outline" : "albums-outline"} size={22} color={theme.primaryText} />
+              </TouchableOpacity>
+            </View>
+            <Coverflow
+              data={displayAlbums}
+              onAlbumPress={openAlbumPage}
+              theme={theme}
+              enabled={isCoverflow}
+              setScrollEnabled={setScrollEnabled}
+            />
           </View>
         )}
 
-        {/* Singles Section */}
+        {/* EPs */}
+        {displayEps.length > 0 && (
+          <View style={styles.section}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={[styles.sectionTitle, { color: theme.primaryText, marginBottom: 0 }]}>EPs</Text>
+              <TouchableOpacity onPress={() => setIsCoverflow(!isCoverflow)}>
+                <Ionicons name={isCoverflow ? "grid-outline" : "albums-outline"} size={22} color={theme.primaryText} />
+              </TouchableOpacity>
+            </View>
+            <Coverflow
+              data={displayEps}
+              onAlbumPress={openAlbumPage}
+              theme={theme}
+              enabled={isCoverflow}
+              setScrollEnabled={setScrollEnabled}
+            />
+          </View>
+        )}
+
+        {/* Singles */}
         {displaySingles.length > 0 && (
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Singles</Text>
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingRight: 16 }}
-            >
-              {displaySingles.map((single, index) => {
-                const imageUrl = pickImageUrl(single.image, 'extralarge') || pickImageUrl(single.image, 'large');
-                const imported = isAlbumImported(single);
-                return (
-                  <Pressable 
-                      key={`artist-single-${single.mbid || single.name}-${index}`}
-                      onPress={() => openAlbumPage && openAlbumPage(single)}
-                      onLongPress={() => {
-                          if (!imported) {
-                              openContextMenu('album', single);
-                          }
-                      }}
-                      delayLongPress={200}
-                      style={styles.albumCard}
-                  >
-                    {imageUrl ? (
-                      <Image source={{ uri: imageUrl }} style={styles.albumImage} />
-                    ) : (
-                      <View style={[styles.albumImage, { backgroundColor: theme.card, justifyContent: 'center', alignItems: 'center' }]}>
-                        <Ionicons name="musical-note" size={40} color={theme.secondaryText} />
-                      </View>
-                    )}
-                    
-                    <Text style={[styles.albumTitle, { color: theme.primaryText }]} numberOfLines={1}>
-                      {single.name}
-                    </Text>
-                    <Text style={[styles.albumSubtitle, { color: theme.secondaryText }]} numberOfLines={1}>
-                      {single.artist?.name ?? single.artist}
-                    </Text>
-
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                      {imported && (
-                          <Ionicons
-                          name="checkmark-circle"
-                          size={16}
-                          color={theme.primaryText}
-                          style={{ marginRight: 8 }}
-                          />
-                      )}
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={[styles.sectionTitle, { color: theme.primaryText, marginBottom: 0 }]}>Singles</Text>
+              <TouchableOpacity onPress={() => setIsCoverflow(!isCoverflow)}>
+                <Ionicons name={isCoverflow ? "grid-outline" : "albums-outline"} size={22} color={theme.primaryText} />
+              </TouchableOpacity>
+            </View>
+            <Coverflow
+              data={displaySingles}
+              onAlbumPress={openAlbumPage}
+              theme={theme}
+              enabled={isCoverflow}
+              setScrollEnabled={setScrollEnabled}
+            />
           </View>
         )}
 
-        {/* Similar Artists Section (replacing About) */}
+        {/* Similar Artists */}
         {similarArtists.length > 0 && (
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Fans also like</Text>
-            <ScrollView 
-              horizontal 
+            <ScrollView
+              horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingRight: 16 }}
             >
               {similarArtists.map((simArtist, index) => {
                 const imageUrl = pickImageUrl(simArtist.image, 'large');
                 return (
-                  <Pressable 
+                  <Pressable
                     key={`similar-${simArtist.mbid || simArtist.name}-${index}`}
                     style={styles.similarArtistCard}
                     onPress={() => {
-                       // Recursive navigation: push same screen with new artist
-                       navigation.push('ArtistPage', { 
-                         artist: simArtist, 
-                         theme,
-                         library,
-                         libraryArtists,
-                         onTrackPress, 
-                         openAlbumPage, 
-                         addToLibrary
-                       });
+                      navigation.push('ArtistPage', {
+                        artist: simArtist,
+                        theme,
+                        library,
+                        libraryArtists,
+                        onTrackPress,
+                        openAlbumPage,
+                        addToLibrary
+                      });
                     }}
                   >
                     {imageUrl ? (
                       <Image source={{ uri: imageUrl }} style={styles.roundArtistImage} />
                     ) : (
                       <View style={[styles.roundArtistImage, { backgroundColor: theme.card, justifyContent: 'center', alignItems: 'center' }]}>
-                         <Ionicons name="person" size={40} color={theme.secondaryText} />
+                        <Ionicons name="person" size={40} color={theme.secondaryText} />
                       </View>
                     )}
-                    <Text 
-                      style={[styles.similarArtistName, { color: theme.primaryText }]} 
+                    <Text
+                      style={[styles.similarArtistName, { color: theme.primaryText }]}
                       numberOfLines={2}
                     >
                       {simArtist.name}
@@ -687,6 +771,7 @@ export default function ArtistPage({ route, navigation }) {
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <Animated.ScrollView
         style={styles.fill}
+        scrollEnabled={scrollEnabled}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         onScroll={Animated.event(
@@ -727,12 +812,41 @@ export default function ArtistPage({ route, navigation }) {
                   />
                 </Pressable>
               </View>
-              <Pressable
-                onPress={playOwnedArtistTracks}
-                style={styles.playButton}
+            </View>
+            <View style={{ flexDirection: 'row', marginTop: 12, marginBottom: 8 }}>
+              <TouchableOpacity
+                onPress={handlePlay}
+                style={{
+                  flex: 1,
+                  backgroundColor: '#000000',
+                  paddingVertical: 12,
+                  borderRadius: 8,
+                  marginRight: 8,
+                  flexDirection: 'row',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
               >
-                <Ionicons name="play" size={32} color="#FFFFFF" />
-              </Pressable>
+                <Ionicons name="play" size={20} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={{ color: '#FFFFFF', fontWeight: 'bold', fontSize: 16 }}>Play</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleShuffle}
+                style={{
+                  flex: 1,
+                  backgroundColor: theme.card,
+                  paddingVertical: 12,
+                  borderRadius: 8,
+                  marginLeft: 8,
+                  flexDirection: 'row',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
+              >
+                <Ionicons name="shuffle" size={20} color={theme.primaryText} style={{ marginRight: 6 }} />
+                <Text style={{ color: theme.primaryText, fontWeight: 'bold', fontSize: 16 }}>Shuffle</Text>
+              </TouchableOpacity>
             </View>
             {artist.listeners && (
               <Text style={[styles.artistStats, { color: theme.secondaryText }]}>
@@ -782,7 +896,7 @@ export default function ArtistPage({ route, navigation }) {
                     )}
                   </Pressable>
                 )}
-                
+
                 {contextMenuType === 'remove' && (
                   <Pressable
                     style={styles.contextMenuItem}
@@ -850,6 +964,41 @@ export default function ArtistPage({ route, navigation }) {
             <Ionicons name="person" size={80} color={theme.secondaryText} />
           </Animated.View>
         )}
+
+        {/* Blur Overlay */}
+        <AnimatedBlurView
+          tint={theme.background === '#000000' ? 'dark' : 'light'}
+          intensity={blurIntensity}
+          style={[StyleSheet.absoluteFill, { zIndex: 2 }]}
+        />
+
+        {/* White Overlay */}
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              zIndex: 2,
+              backgroundColor: theme.background,
+              opacity: scrollY.interpolate({
+                inputRange: [0, HEADER_SCROLL_DISTANCE],
+                outputRange: [0, 0.85],
+                extrapolate: 'clamp',
+              }),
+            },
+          ]}
+        />
+
+        {/* Sticky Title */}
+        <Animated.View
+          style={[
+            styles.stickyHeaderTitle,
+            { opacity: titleOpacity }
+          ]}
+        >
+          <Text style={[styles.stickyHeaderTitleText, { color: theme.primaryText }]} numberOfLines={1}>
+            {artist.name}
+          </Text>
+        </Animated.View>
       </Animated.View>
 
       {/* Back Button */}
@@ -859,6 +1008,7 @@ export default function ArtistPage({ route, navigation }) {
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
@@ -1055,5 +1205,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  stickyHeaderTitle: {
+    position: 'absolute',
+    top: 0,
+    left: 60, // Avoid back button
+    right: 60, // Balance right side
+    height: 80, // HEADER_MIN_HEIGHT
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 35, // Align with back button (top: 40)
+    zIndex: 3,
+  },
+  stickyHeaderTitleText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000000',
   },
 });

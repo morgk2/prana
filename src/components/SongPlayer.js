@@ -84,7 +84,7 @@ function pickImageUrl(images, preferredSize = 'extralarge') {
   return any ? any['#text'] : null;
 }
 
-function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSlidingComplete, isLoading }) {
+function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSlidingComplete, isLoading, trackColor = 'rgba(255,255,255,0.3)', progressColor = '#ffffff' }) {
   const [width, setWidth] = useState(0);
   const heightAnim = useRef(new Animated.Value(6)).current;
   const pulseAnim = useRef(new Animated.Value(0.3)).current;
@@ -143,7 +143,7 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
             left: 0,
             right: 0,
             height: heightAnim,
-            backgroundColor: 'rgba(255,255,255,0.3)',
+            backgroundColor: trackColor,
             borderRadius: 999,
           }}
         />
@@ -153,7 +153,7 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
             left: 0,
             width: isLoading ? '100%' : `${progress * 100}%`,
             height: heightAnim,
-            backgroundColor: '#ffffff',
+            backgroundColor: progressColor,
             borderRadius: 999,
             opacity: isLoading ? pulseAnim : 1,
           }}
@@ -163,15 +163,58 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
   );
 }
 
-export default function SongPlayer({ isVisible = true, track, onClose, onKill, onOpen, theme, setPlayerControls, onArtistPress, queue = [], queueIndex = 0, onTrackChange, onQueueReorder, toggleFavorite, isFavorite, shouldPlay = true, zIndex = 1000, shouldHide = false }) {
+function AnimatedControl({ onPress, children, style, disabled }) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    Animated.spring(scale, {
+      toValue: 0.92,
+      useNativeDriver: true,
+      speed: 50,
+      bounciness: 10,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 50,
+      bounciness: 10,
+    }).start();
+  };
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      disabled={disabled}
+    >
+      <Animated.View style={[style, { transform: [{ scale }] }]}>
+        {children}
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+
+export default function SongPlayer({ isVisible = true, track, onClose, onKill, onOpen, theme, setPlayerControls, onArtistPress, queue = [], queueIndex = 0, onTrackChange, onQueueReorder, toggleFavorite, isFavorite, shouldPlay = true, zIndex = 1000, shouldHide = false, playerColorMode = 'dark' }) {
   const { height: screenHeight, width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { recentDownloads } = useDownload();
-  const colors = {
+
+  // Set player background colors based on playerColorMode
+  const colors = playerColorMode === 'light' ? {
+    primary: '#FFFFFF',
+    secondary: '#F5F5F5',
+    detail: '#000000',
+  } : {
     primary: '#000000',
     secondary: '#202020',
     detail: '#ffffff',
   };
+
   const [sound, setSound] = useState(null);
   const [playback, setPlayback] = useState({
     positionMillis: 0,
@@ -181,7 +224,7 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
 
   // Animation for hiding the player (slide down)
   const hideAnim = useRef(new Animated.Value(shouldHide ? 1 : 0)).current;
-  
+
   // Animation for dismissing the mini player completely
   const dismissAnim = useRef(new Animated.Value(0)).current;
 
@@ -256,6 +299,29 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
   const lyricsAnim = useRef(new Animated.Value(0)).current;
   const [showLyrics, setShowLyrics] = useState(false);
   const [isLyricsRendered, setIsLyricsRendered] = useState(false);
+
+  // Button Animations
+  const playPauseScale = useRef(new Animated.Value(1)).current;
+  const nextTranslate = useRef(new Animated.Value(0)).current;
+  const prevTranslate = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Pulse animation on play/pause state change
+    Animated.sequence([
+      Animated.timing(playPauseScale, { toValue: 0.85, duration: 100, useNativeDriver: true }),
+      Animated.spring(playPauseScale, { toValue: 1, friction: 5, useNativeDriver: true })
+    ]).start();
+  }, [isPlaying]);
+
+  const animateSkip = (direction) => {
+    const anim = direction === 'next' ? nextTranslate : prevTranslate;
+    const value = direction === 'next' ? 15 : -15;
+
+    Animated.sequence([
+      Animated.timing(anim, { toValue: value, duration: 150, useNativeDriver: true }),
+      Animated.spring(anim, { toValue: 0, friction: 6, useNativeDriver: true })
+    ]).start();
+  };
 
   useEffect(() => {
     if (showLyrics) {
@@ -472,10 +538,10 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
     async function load() {
       // Check for downloaded file first
       const downloadedUri = resolvedDownloadUri;
-      
+
       let currentUri = downloadedUri || track?.uri || track?.previewUrl || null;
       let workingTidalId = track?.tidalId;
-      
+
       if (downloadedUri) {
         console.log('[SongPlayer] Playing from download:', downloadedUri);
       }
@@ -488,7 +554,7 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
           const playable = await getPlayableTrack(track, true);
           if (playable) {
             // Use cached/resolved URI if available (it might be fresher than track.uri)
-            if (playable.uri && playable.source === 'tidal') {
+            if (playable.uri) {
               currentUri = playable.uri;
               if (!cancelled) setActiveUri(currentUri);
             }
@@ -604,7 +670,7 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
             if (!cancelled) setIsResolvingTidal(false);
           }
         }
-        
+
         // If we still don't have a sound object and should stream from TIDAL, try name-based search
         if (!soundObj && !currentUri && shouldStreamFromTidal(track, true)) {
           if (!cancelled) setIsResolvingTidal(true);
@@ -671,6 +737,7 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
   }, [sound, isPlaying]);
 
   const skipNext = useCallback(() => {
+    animateSkip('next');
     if (!onTrackChange || !queue || queue.length === 0) return;
     const nextIndex = queueIndex + 1;
     if (nextIndex < queue.length) {
@@ -683,6 +750,7 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
   }, [onTrackChange, queue, queueIndex, slideAnim]);
 
   const skipPrevious = useCallback(() => {
+    animateSkip('prev');
     if (!onTrackChange || !queue || queue.length === 0) return;
     const prevIndex = queueIndex - 1;
     if (prevIndex >= 0) {
@@ -828,13 +896,13 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
       {...panResponder.panHandlers}
     >
       {/* Mini Player Content */}
-      <Animated.View 
+      <Animated.View
         style={[
-          styles.miniPlayerContainer, 
-          { 
-            opacity: Animated.multiply(miniOpacity, dismissOpacity), 
-            backgroundColor: theme?.card || '#202020', 
-            borderRadius: containerRadius, 
+          styles.miniPlayerContainer,
+          {
+            opacity: Animated.multiply(miniOpacity, dismissOpacity),
+            backgroundColor: theme?.card || '#202020',
+            borderRadius: containerRadius,
             elevation: zIndex > 0 ? 6 : 0,
             transform: [{ translateY: dismissTranslateY }]
           }
@@ -866,9 +934,9 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
           {/* Header - Fixed */}
           <View style={styles.header}>
             <Pressable onPress={onClose} style={styles.iconButton} hitSlop={16}>
-              <Ionicons name="chevron-down" size={28} color="#fff" />
+              <Ionicons name="chevron-down" size={28} color={colors.detail} />
             </Pressable>
-            <Text style={styles.headerTitle}>NOW PLAYING</Text>
+            <Text style={[styles.headerTitle, { color: colors.detail }]}>NOW PLAYING</Text>
             <View style={{ width: 28 }} />
           </View>
 
@@ -891,7 +959,7 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
                   <Image source={{ uri: imageUrl }} style={styles.artwork} />
                 ) : (
                   <View style={[styles.artwork, { backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' }]}>
-                    <Ionicons name="musical-note" size={80} color="rgba(255,255,255,0.3)" />
+                    <Ionicons name="musical-note" size={80} color={playerColorMode === 'light' ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)'} />
                   </View>
                 )}
               </Animated.View>
@@ -907,9 +975,9 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
               ]}
             >
               <View style={{ flex: 1, marginRight: 16 }}>
-                <Text style={styles.title} numberOfLines={1}>{track.name}</Text>
+                <Text style={[styles.title, { color: colors.detail }]} numberOfLines={1}>{track.name}</Text>
                 <Pressable onPress={() => onArtistPress && onArtistPress(track.artist?.name ?? track.artist)}>
-                  <Text style={styles.artist} numberOfLines={1}>{track.artist?.name ?? track.artist}</Text>
+                  <Text style={[styles.artist, { color: colors.detail }]} numberOfLines={1}>{track.artist?.name ?? track.artist}</Text>
                 </Pressable>
               </View>
               <Pressable
@@ -920,7 +988,7 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
                 <Ionicons
                   name={isFavorite ? "star" : "star-outline"}
                   size={24}
-                  color={isFavorite ? "#FFFFFF" : "rgba(255, 255, 255, 0.6)"}
+                  color={isFavorite ? colors.detail : (playerColorMode === 'light' ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.6)')}
                 />
               </Pressable>
             </Animated.View>
@@ -933,49 +1001,61 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
                 onValueChange={onSeekUpdate}
                 onSlidingComplete={onSeekComplete}
                 isLoading={isLoading}
+                trackColor={playerColorMode === 'light' ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)'}
+                progressColor={colors.detail}
               />
               <View style={styles.timeRow}>
-                <Text style={styles.timeText}>{formatTime(positionSec)}</Text>
-                <Text style={styles.timeText}>{formatTime(durationSec)}</Text>
+                <Text style={[styles.timeText, { color: colors.detail }]}>{formatTime(positionSec)}</Text>
+                <Text style={[styles.timeText, { color: colors.detail }]}>{formatTime(durationSec)}</Text>
               </View>
             </View>
 
             <View style={styles.controls}>
-              <Pressable style={styles.controlButton} onPress={toggleShuffle}>
-                <Ionicons name="shuffle" size={24} color={isShuffleEnabled ? "#fff" : "rgba(255,255,255,0.6)"} />
-                {isShuffleEnabled && <View style={styles.activeIndicatorDot} />}
-              </Pressable>
-              <Pressable style={styles.controlButton} onPress={skipPrevious} disabled={!canSkipPrevious}>
-                <Ionicons name="play-skip-back" size={32} color={canSkipPrevious ? "#fff" : "rgba(255,255,255,0.3)"} />
-              </Pressable>
-              <Pressable style={[styles.controlButton, styles.playPauseButton]} onPress={togglePlay}>
+              <AnimatedControl style={styles.controlButton} onPress={toggleShuffle}>
+                <Ionicons name="shuffle" size={24} color={isShuffleEnabled ? colors.detail : (playerColorMode === 'light' ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)')} />
+                {isShuffleEnabled && <View style={[styles.activeIndicatorDot, { backgroundColor: colors.detail }]} />}
+              </AnimatedControl>
+
+              <AnimatedControl style={styles.controlButton} onPress={skipPrevious} disabled={!canSkipPrevious}>
+                <Animated.View style={{ transform: [{ translateX: prevTranslate }] }}>
+                  <Ionicons name="play-skip-back" size={32} color={canSkipPrevious ? colors.detail : (playerColorMode === 'light' ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)')} />
+                </Animated.View>
+              </AnimatedControl>
+
+              <AnimatedControl style={[styles.controlButton, styles.playPauseButton, { backgroundColor: colors.detail }]} onPress={togglePlay}>
                 {isLoading ? (
-                  <ActivityIndicator color="#000" />
+                  <ActivityIndicator color={playerColorMode === 'light' ? '#fff' : '#000'} />
                 ) : (
-                  <Ionicons name={isPlaying ? "pause" : "play"} size={40} color="#000" style={{ marginLeft: isPlaying ? 0 : 4 }} />
+                  <Animated.View style={{ transform: [{ scale: playPauseScale }] }}>
+                    <Ionicons name={isPlaying ? "pause" : "play"} size={40} color={playerColorMode === 'light' ? '#fff' : '#000'} style={{ marginLeft: isPlaying ? 0 : 4 }} />
+                  </Animated.View>
                 )}
-              </Pressable>
-              <Pressable style={styles.controlButton} onPress={skipNext} disabled={!canSkipNext}>
-                <Ionicons name="play-skip-forward" size={32} color={canSkipNext ? "#fff" : "rgba(255,255,255,0.3)"} />
-              </Pressable>
-              <Pressable style={styles.controlButton} onPress={() => {
+              </AnimatedControl>
+
+              <AnimatedControl style={styles.controlButton} onPress={skipNext} disabled={!canSkipNext}>
+                <Animated.View style={{ transform: [{ translateX: nextTranslate }] }}>
+                  <Ionicons name="play-skip-forward" size={32} color={canSkipNext ? colors.detail : (playerColorMode === 'light' ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)')} />
+                </Animated.View>
+              </AnimatedControl>
+
+              <AnimatedControl style={styles.controlButton} onPress={() => {
                 const modes = [0, 1, 2];
                 const nextMode = modes[(repeatMode + 1) % modes.length];
                 setRepeatMode(nextMode);
               }}>
                 <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-                  <Ionicons name="repeat" size={24} color={repeatMode !== 0 ? "#fff" : "rgba(255,255,255,0.6)"} />
-                  {repeatMode === 2 && <View style={[styles.activeIndicatorDot, { position: 'absolute', bottom: -8 }]} />}
+                  <Ionicons name="repeat" size={24} color={repeatMode !== 0 ? colors.detail : (playerColorMode === 'light' ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)')} />
+                  {repeatMode === 2 && <View style={[styles.activeIndicatorDot, { position: 'absolute', bottom: -8, backgroundColor: colors.detail }]} />}
                 </View>
-              </Pressable>
+              </AnimatedControl>
             </View>
 
             <View style={styles.bottomControls}>
               <Pressable hitSlop={16} onPress={toggleLyrics} style={styles.bottomControlButton}>
-                <Ionicons name="chatbox-ellipses" size={24} color={showLyrics ? "#fff" : "rgba(255,255,255,0.7)"} />
+                <Ionicons name="chatbox-ellipses" size={24} color={showLyrics ? colors.detail : (playerColorMode === 'light' ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.7)')} />
               </Pressable>
               <Pressable onPress={() => setQueueVisible(true)} style={styles.bottomControlButton}>
-                <Ionicons name="list" size={24} color="#fff" />
+                <Ionicons name="list" size={24} color={colors.detail} />
               </Pressable>
             </View>
           </Animated.View>
@@ -990,13 +1070,14 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
                   duration={durationSec}
                   onSeek={onSeekComplete}
                   backgroundColor={colors.secondary}
+                  textColor={colors.detail}
                 />
                 <View style={styles.lyricsBottomControls}>
                   <Pressable hitSlop={16} onPress={toggleLyrics} style={styles.bottomControlButton}>
-                    <Ionicons name="chatbox-ellipses" size={24} color="#fff" />
+                    <Ionicons name="chatbox-ellipses" size={24} color={colors.detail} />
                   </Pressable>
                   <Pressable onPress={() => setQueueVisible(true)} style={styles.bottomControlButton}>
-                    <Ionicons name="list" size={24} color="#fff" />
+                    <Ionicons name="list" size={24} color={colors.detail} />
                   </Pressable>
                 </View>
               </>
@@ -1011,6 +1092,7 @@ export default function SongPlayer({ isVisible = true, track, onClose, onKill, o
             onTrackSelect={onTrackChange}
             onReorder={onQueueReorder}
             onDelete={onQueueReorder}
+            backgroundColor={colors.secondary}
           />
         </LinearGradient>
       </Animated.View>

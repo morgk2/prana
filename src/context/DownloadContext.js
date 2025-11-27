@@ -22,6 +22,7 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
   const [recentDownloads, setRecentDownloads] = useState({}); // { [trackId]: fileUri } - Map for immediate playback
   const [isLoaded, setIsLoaded] = useState(false);
   const keepAliveSound = useRef(null);
+  const cancelledAlbums = useRef(new Set());
 
   // Manage background keep-alive sound
   const hasActiveDownloads = Object.keys(activeDownloads).length > 0 || Object.values(albumDownloads).some(a => a.isDownloading);
@@ -50,7 +51,7 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
               { uri: SILENT_AUDIO_URI },
               { shouldPlay: true, isLooping: true, volume: 0 }
             );
-            
+
             if (mounted) {
               keepAliveSound.current = sound;
             } else {
@@ -134,7 +135,7 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
         console.warn('[DownloadContext] Failed to save downloads persistence', e);
       }
     };
-    
+
     saveDownloads();
   }, [downloadedTracks, recentDownloads, isLoaded]);
 
@@ -151,7 +152,7 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
       // 1. Resolve stream
       const enrichedTrack = { ...track };
       // Assuming track already has album/artist metadata from the UI context
-      
+
       const playableTrack = await getPlayableTrack(enrichedTrack, true);
 
       if (!playableTrack || !playableTrack.tidalId) {
@@ -160,15 +161,15 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
 
       // 2. Download
       let streamUrl = playableTrack.uri;
-      
+
       // Determine file extension based on URL content
       let extension = 'flac'; // Default for Tidal
       if (streamUrl && (streamUrl.includes('.mp3') || streamUrl.includes('format=mp3'))) {
-          extension = 'mp3';
+        extension = 'mp3';
       }
-      
+
       const filename = `${playableTrack.artist} - ${playableTrack.name}.${extension}`.replace(/[^a-z0-9 \.\-_]/gi, '_');
-      
+
       console.log('[DownloadContext] Destination:', filename, 'Ext:', extension);
 
       const performDownload = async (url) => {
@@ -193,35 +194,35 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
       try {
         if (!streamUrl) throw new Error('No initial stream URL');
         downloadResult = await performDownload(streamUrl);
-        
+
         // Verify download
         const fileInfo = await FileSystem.getInfoAsync(downloadResult.uri);
         console.log('[DownloadContext] Downloaded file info:', fileInfo);
-        
+
         if (fileInfo.size < 1000) {
-             // Likely an error page
-             console.warn('[DownloadContext] Downloaded file is too small, likely an error page');
-             // Try to read it to see error
-             const content = await FileSystem.readAsStringAsync(downloadResult.uri);
-             console.warn('[DownloadContext] File content start:', content.substring(0, 200));
-             throw new Error('Downloaded file invalid (too small)');
+          // Likely an error page
+          console.warn('[DownloadContext] Downloaded file is too small, likely an error page');
+          // Try to read it to see error
+          const content = await FileSystem.readAsStringAsync(downloadResult.uri);
+          console.warn('[DownloadContext] File content start:', content.substring(0, 200));
+          throw new Error('Downloaded file invalid (too small)');
         }
 
       } catch (initialError) {
         console.warn('[DownloadContext] Retry fetch for:', track.name);
         let freshTrack = null;
-        
+
         // Try ID-based refresh first if we have a tidalId
         if (playableTrack.tidalId) {
           freshTrack = await getFreshTidalStream(playableTrack.tidalId);
         }
-        
+
         // If ID-based refresh failed or returned null (invalid ID), try name-based search
         if (!freshTrack || !freshTrack.uri) {
           console.warn('[DownloadContext] ID-based refresh failed, trying name-based search');
           freshTrack = await getPlayableTrack(track, true);
         }
-        
+
         if (freshTrack && freshTrack.uri) {
           downloadResult = await performDownload(freshTrack.uri);
         } else {
@@ -233,83 +234,83 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
       let image = playableTrack.image;
       // Fallback image logic should be handled by the caller or resolved before, 
       // but we can try to preserve what we have.
-      
+
       const trackToAdd = {
         ...playableTrack,
         image,
-        album: track.album || playableTrack.album, 
+        album: track.album || playableTrack.album,
       };
 
       await addToLibrary(trackToAdd, downloadResult.uri, filename);
-      
+
       // Mark as downloaded and save URI for immediate access
       setDownloadedTracks(prev => {
-          const next = new Set(prev);
-          next.add(trackId);
-          if (track.uri) next.add(track.uri); 
-          return next;
+        const next = new Set(prev);
+        next.add(trackId);
+        if (track.uri) next.add(track.uri);
+        return next;
       });
       setRecentDownloads(prev => ({
-          ...prev,
-          [trackId]: downloadResult.uri,
-          [track.name]: downloadResult.uri // Fallback key
+        ...prev,
+        [trackId]: downloadResult.uri,
+        [track.name]: downloadResult.uri // Fallback key
       }));
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
       // Update Album Progress if part of an album download
       if (albumKey) {
-          let progressInfo = null;
+        let progressInfo = null;
 
-          setAlbumDownloads(prev => {
-              const current = prev[albumKey];
-              if (!current) return prev;
-              const newCompleted = current.completed + 1;
-              const newProgress = newCompleted / current.total;
+        setAlbumDownloads(prev => {
+          const current = prev[albumKey];
+          if (!current) return prev;
+          const newCompleted = current.completed + 1;
+          const newProgress = newCompleted / current.total;
 
-              progressInfo = { completed: newCompleted, total: current.total };
-              
-              if (newCompleted >= current.total) {
-                  // Album finished
-                  const { [albumKey]: _, ...rest } = prev;
-                  return rest;
-              }
-              
-              return {
-                  ...prev,
-                  [albumKey]: {
-                      ...current,
-                      completed: newCompleted,
-                      progress: newProgress,
-                  }
-              };
-          });
+          progressInfo = { completed: newCompleted, total: current.total };
 
-          // Fire notification
-          if (progressInfo) {
-            if (progressInfo.completed < progressInfo.total) {
-              Notifications.scheduleNotificationAsync({
-                identifier: `download-${albumKey}`,
-                content: {
-                  title: 'Downloading Music',
-                  body: `Downloaded ${progressInfo.completed} of ${progressInfo.total} Tracks`,
-                  sound: false,
-                  priority: Notifications.AndroidNotificationPriority.LOW,
-                },
-                trigger: null,
-              });
-            } else {
-              // Done
-              Notifications.scheduleNotificationAsync({
-                identifier: `download-${albumKey}`,
-                content: {
-                  title: 'Download Complete',
-                  body: `Finished downloading ${progressInfo.total} tracks.`,
-                },
-                trigger: null,
-              });
-            }
+          if (newCompleted >= current.total) {
+            // Album finished
+            const { [albumKey]: _, ...rest } = prev;
+            return rest;
           }
+
+          return {
+            ...prev,
+            [albumKey]: {
+              ...current,
+              completed: newCompleted,
+              progress: newProgress,
+            }
+          };
+        });
+
+        // Fire notification
+        if (progressInfo) {
+          if (progressInfo.completed < progressInfo.total) {
+            Notifications.scheduleNotificationAsync({
+              identifier: `download-${albumKey}`,
+              content: {
+                title: 'Downloading Music',
+                body: `Downloaded ${progressInfo.completed} of ${progressInfo.total} Tracks`,
+                sound: false,
+                priority: Notifications.AndroidNotificationPriority.LOW,
+              },
+              trigger: null,
+            });
+          } else {
+            // Done
+            Notifications.scheduleNotificationAsync({
+              identifier: `download-${albumKey}`,
+              content: {
+                title: 'Download Complete',
+                body: `Finished downloading ${progressInfo.total} tracks.`,
+              },
+              trigger: null,
+            });
+          }
+        }
       }
 
     } catch (error) {
@@ -324,28 +325,57 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
   };
 
   const startAlbumDownload = async (albumKey, tracks) => {
-      if (!tracks || tracks.length === 0) return;
-      
-      // Filter already downloaded
-      // We rely on the caller to filter, or we can check our internal set + simple heuristics
-      // For now, assume 'tracks' contains only unowned/un-downloaded tracks
-      
-      if (albumDownloads[albumKey]) return; // Already downloading
+    if (!tracks || tracks.length === 0) return;
 
-      setAlbumDownloads(prev => ({
-          ...prev,
-          [albumKey]: {
-              total: tracks.length,
-              completed: 0,
-              progress: 0,
-              isDownloading: true
-          }
-      }));
+    // Filter already downloaded
+    // We rely on the caller to filter, or we can check our internal set + simple heuristics
+    // For now, assume 'tracks' contains only unowned/un-downloaded tracks
 
-      // Process sequentially to avoid rate limits / overload
-      for (const track of tracks) {
-          await handleDownloadTrack(track, albumKey);
+    if (albumDownloads[albumKey]) return; // Already downloading
+
+    // Reset cancellation status for this album
+    if (cancelledAlbums.current.has(albumKey)) {
+      cancelledAlbums.current.delete(albumKey);
+    }
+
+    setAlbumDownloads(prev => ({
+      ...prev,
+      [albumKey]: {
+        total: tracks.length,
+        completed: 0,
+        progress: 0,
+        isDownloading: true
       }
+    }));
+
+    // Process sequentially to avoid rate limits / overload
+    for (const track of tracks) {
+      // Check for cancellation
+      if (cancelledAlbums.current.has(albumKey)) {
+        console.log(`[DownloadContext] Download cancelled for album: ${albumKey}`);
+        break;
+      }
+      await handleDownloadTrack(track, albumKey);
+    }
+
+    // Cleanup if cancelled or finished
+    if (cancelledAlbums.current.has(albumKey)) {
+      setAlbumDownloads(prev => {
+        const { [albumKey]: _, ...rest } = prev;
+        return rest;
+      });
+      cancelledAlbums.current.delete(albumKey);
+    }
+  };
+
+  const cancelAlbumDownload = (albumKey) => {
+    console.log(`[DownloadContext] Cancelling download for album: ${albumKey}`);
+    cancelledAlbums.current.add(albumKey);
+    // We also remove it from state immediately to update UI
+    setAlbumDownloads(prev => {
+      const { [albumKey]: _, ...rest } = prev;
+      return rest;
+    });
   };
 
   const resetDownloads = async () => {
@@ -372,6 +402,7 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
       recentDownloads,
       handleDownloadTrack,
       startAlbumDownload,
+      cancelAlbumDownload,
       resetDownloads
     }}>
       {children}

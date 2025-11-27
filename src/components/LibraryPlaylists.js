@@ -59,8 +59,8 @@ export default function LibraryPlaylists({ route, navigation }) {
                 style={[styles.playlistItem, { borderBottomColor: theme.border }]}
                 onPress={() => navigation.navigate('PlaylistPage', { playlist: likedSongsPlaylist, theme, ...route.params })}
             >
-                <View style={[styles.artwork, { backgroundColor: theme.primary }]}>
-                    <Ionicons name="star" size={24} color="#000000" />
+                <View style={[styles.artwork, { backgroundColor: theme.primaryText }]}>
+                    <Ionicons name="heart" size={24} color={theme.background} />
                 </View>
                 <View style={styles.playlistInfo}>
                     <Text style={[styles.playlistTitle, { color: theme.primaryText }]} numberOfLines={1}>

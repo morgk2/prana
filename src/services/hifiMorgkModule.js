@@ -10,7 +10,7 @@ let SUBSONIC_USERNAME = 'morgk';
 let SUBSONIC_PASSWORD = 'moumendz';
 
 // API version
-const CLIENT_NAME = 'Prana';
+const CLIENT_NAME = '8SPINE';
 
 /**
  * Build authenticated Subsonic API URL

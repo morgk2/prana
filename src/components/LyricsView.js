@@ -17,7 +17,7 @@ import { getLyrics } from '../api/lrclib';
 import { parseLrc } from '../utils/lrcParser';
 import { fetchAndCacheLyrics } from '../utils/lyricsCache';
 
-const LyricLine = ({ item, isActive, onPress }) => {
+const LyricLine = ({ item, isActive, onPress, textColor = '#ffffff' }) => {
     const animValue = useRef(new Animated.Value(isActive ? 1 : 0)).current;
 
     useEffect(() => {
@@ -56,6 +56,7 @@ const LyricLine = ({ item, isActive, onPress }) => {
                         textShadowColor: 'rgba(0,0,0,0.3)',
                         textShadowOffset: { width: 0, height: 2 },
                         textShadowRadius: 4,
+                        color: textColor,
                     },
                 ]}
             >
@@ -65,7 +66,7 @@ const LyricLine = ({ item, isActive, onPress }) => {
     );
 };
 
-export default function LyricsView({ track, currentTime, duration, onSeek, onInteraction, style, backgroundColor = '#202020' }) {
+export default function LyricsView({ track, currentTime, duration, onSeek, onInteraction, style, backgroundColor = '#202020', textColor = '#ffffff' }) {
     const [loading, setLoading] = useState(false);
     const [lyricsData, setLyricsData] = useState(null);
     const [parsedLyrics, setParsedLyrics] = useState([]);
@@ -78,13 +79,13 @@ export default function LyricsView({ track, currentTime, duration, onSeek, onInt
     // Fetch lyrics when track changes
     useEffect(() => {
         let isMounted = true;
-        
+
         const fetchLyrics = async () => {
             if (!track) return;
-            
+
             setLoading(true);
             setError(null);
-            
+
             try {
                 // Check if track has embedded lyrics
                 if (track.lyrics) {
@@ -159,7 +160,7 @@ export default function LyricsView({ track, currentTime, duration, onSeek, onInt
                     if (i < parsed.length - 1) {
                         const nextLine = parsed[i + 1];
                         const gap = nextLine.time - currentLine.time;
-                        
+
                         if (gap > GAP_THRESHOLD) {
                             // Insert filler line shortly after current line
                             // But ensure it's before the next line
@@ -171,7 +172,7 @@ export default function LyricsView({ track, currentTime, duration, onSeek, onInt
                             // Lrc lines don't have duration.
                             // Let's assume a line takes ~3-4 seconds.
                             // We'll insert '...' at currentLine.time + 5, ensuring it's < nextLine.time
-                            
+
 
                             let fillerTime = currentLine.time + 5;
                             if (fillerTime < nextLine.time) {
@@ -182,7 +183,7 @@ export default function LyricsView({ track, currentTime, duration, onSeek, onInt
                 }
                 parsed = withFillers;
             }
-            
+
             setParsedLyrics(parsed);
         } else {
             setParsedLyrics([]);
@@ -213,149 +214,150 @@ export default function LyricsView({ track, currentTime, duration, onSeek, onInt
         }
     }, [currentTime, parsedLyrics]);
 
-const scrollToIndex = (index) => {
-    if (isUserScrolling.current || !flatListRef.current) return;
+    const scrollToIndex = (index) => {
+        if (isUserScrolling.current || !flatListRef.current) return;
 
-    try {
-        flatListRef.current.scrollToIndex({
-            index,
-            animated: true,
-            viewPosition: 0, // Position active item at top
-        });
-    } catch (e) {
-        // Ignore scroll errors (e.g. list not ready)
-    }
-};
-
-const handleScrollBegin = () => {
-    if (onInteraction) onInteraction();
-    isUserScrolling.current = true;
-    if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
-};
-
-const handleScrollEnd = () => {
-    // Resume auto-scroll after 2 seconds of inactivity
-    if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
-    scrollTimeout.current = setTimeout(() => {
-        isUserScrolling.current = false;
-        // Snap back to current line
-        if (activeIndex >= 0) {
-            scrollToIndex(activeIndex);
+        try {
+            flatListRef.current.scrollToIndex({
+                index,
+                animated: true,
+                viewPosition: 0, // Position active item at top
+            });
+        } catch (e) {
+            // Ignore scroll errors (e.g. list not ready)
         }
-    }, 2000);
-};
+    };
 
-const handleLinePress = (line, index) => {
-    if (onInteraction) onInteraction();
-    // Optimistic update
-    setActiveIndex(index);
-    if (onSeek) {
-        Haptics.selectionAsync();
-        onSeek(line.time);
+    const handleScrollBegin = () => {
+        if (onInteraction) onInteraction();
+        isUserScrolling.current = true;
+        if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
+    };
+
+    const handleScrollEnd = () => {
+        // Resume auto-scroll after 2 seconds of inactivity
+        if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
+        scrollTimeout.current = setTimeout(() => {
+            isUserScrolling.current = false;
+            // Snap back to current line
+            if (activeIndex >= 0) {
+                scrollToIndex(activeIndex);
+            }
+        }, 2000);
+    };
+
+    const handleLinePress = (line, index) => {
+        if (onInteraction) onInteraction();
+        // Optimistic update
+        setActiveIndex(index);
+        if (onSeek) {
+            Haptics.selectionAsync();
+            onSeek(line.time);
+        }
+    };
+
+    const renderItem = ({ item, index }) => {
+        return (
+            <LyricLine
+                item={item}
+                isActive={index === activeIndex}
+                onPress={() => handleLinePress(item, index)}
+                textColor={textColor}
+            />
+        );
+    };
+
+    if (loading) {
+        return (
+            <View style={[styles.container, styles.center, style]}>
+                <ActivityIndicator size="large" color={textColor} />
+            </View>
+        );
     }
-};
 
-const renderItem = ({ item, index }) => {
-    return (
-        <LyricLine
-            item={item}
-            isActive={index === activeIndex}
-            onPress={() => handleLinePress(item, index)}
-        />
-    );
-};
+    if (error) {
+        return (
+            <View style={[styles.container, styles.center, style]}>
+                <Text style={[styles.messageText, { color: textColor }]}>{error}</Text>
+            </View>
+        );
+    }
 
-if (loading) {
+    if (parsedLyrics.length > 0) {
+        return (
+            <View style={[styles.container, style]}>
+                <FlatList
+                    ref={flatListRef}
+                    data={parsedLyrics}
+                    renderItem={renderItem}
+                    keyExtractor={(_, i) => `line-${i}`}
+                    contentContainerStyle={styles.listContent}
+                    showsVerticalScrollIndicator={false}
+                    onScrollBeginDrag={handleScrollBegin}
+                    onMomentumScrollEnd={handleScrollEnd}
+                    onScrollEndDrag={handleScrollEnd}
+
+                />
+                <LinearGradient
+                    colors={['transparent', backgroundColor]}
+                    style={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        height: 120,
+                    }}
+                    pointerEvents="none"
+                />
+            </View>
+        );
+    }
+
+    // Fallback to plain lyrics
+    if (lyricsData?.plainLyrics) {
+        // Split plain lyrics into lines
+        const plainLines = lyricsData.plainLyrics
+            .split('\n')
+            .filter(line => line.trim().length > 0)
+            .map((text, index) => ({ text, index }));
+
+        return (
+            <View style={[styles.container, style]}>
+                <FlatList
+                    data={plainLines}
+                    renderItem={({ item }) => (
+                        <Pressable
+                            style={styles.line}
+                        >
+                            <Text style={[styles.lineText, styles.plainLineText, { color: textColor }]}>
+                                {item.text}
+                            </Text>
+                        </Pressable>
+                    )}
+                    keyExtractor={(item) => `plain-${item.index}`}
+                    contentContainerStyle={styles.listContent}
+                    showsVerticalScrollIndicator={false}
+                />
+                <LinearGradient
+                    colors={['transparent', backgroundColor]}
+                    style={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        height: 120,
+                    }}
+                    pointerEvents="none"
+                />
+            </View>
+        );
+    }
+
     return (
         <View style={[styles.container, styles.center, style]}>
-            <ActivityIndicator size="large" color="#fff" />
+            <Text style={[styles.messageText, { color: textColor }]}>No lyrics available</Text>
         </View>
     );
-}
-
-if (error) {
-    return (
-        <View style={[styles.container, styles.center, style]}>
-            <Text style={styles.messageText}>{error}</Text>
-        </View>
-    );
-}
-
-if (parsedLyrics.length > 0) {
-    return (
-        <View style={[styles.container, style]}>
-            <FlatList
-                ref={flatListRef}
-                data={parsedLyrics}
-                renderItem={renderItem}
-                keyExtractor={(_, i) => `line-${i}`}
-                contentContainerStyle={styles.listContent}
-                showsVerticalScrollIndicator={false}
-                onScrollBeginDrag={handleScrollBegin}
-                onMomentumScrollEnd={handleScrollEnd}
-                onScrollEndDrag={handleScrollEnd}
-
-            />
-            <LinearGradient
-                colors={['transparent', backgroundColor]}
-                style={{
-                    position: 'absolute',
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    height: 120,
-                }}
-                pointerEvents="none"
-            />
-        </View>
-    );
-}
-
-// Fallback to plain lyrics
-if (lyricsData?.plainLyrics) {
-    // Split plain lyrics into lines
-    const plainLines = lyricsData.plainLyrics
-        .split('\n')
-        .filter(line => line.trim().length > 0)
-        .map((text, index) => ({ text, index }));
-
-    return (
-        <View style={[styles.container, style]}>
-            <FlatList
-                data={plainLines}
-                renderItem={({ item }) => (
-                    <Pressable
-                        style={styles.line}
-                    >
-                        <Text style={[styles.lineText, styles.plainLineText]}>
-                            {item.text}
-                        </Text>
-                    </Pressable>
-                )}
-                keyExtractor={(item) => `plain-${item.index}`}
-                contentContainerStyle={styles.listContent}
-                showsVerticalScrollIndicator={false}
-            />
-            <LinearGradient
-                colors={['transparent', backgroundColor]}
-                style={{
-                    position: 'absolute',
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    height: 120,
-                }}
-                pointerEvents="none"
-            />
-        </View>
-    );
-}
-
-return (
-    <View style={[styles.container, styles.center, style]}>
-        <Text style={styles.messageText}>No lyrics available</Text>
-    </View>
-);
 }
 
 const styles = StyleSheet.create({

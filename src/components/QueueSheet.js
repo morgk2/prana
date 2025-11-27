@@ -27,7 +27,7 @@ function pickImageUrl(images, preferredSize = 'extralarge') {
 
 const ROW_HEIGHT = 70;
 
-export default function QueueSheet({ visible, onClose, queue, currentIndex, onReorder, onTrackSelect, onDelete }) {
+export default function QueueSheet({ visible, onClose, queue, currentIndex, onReorder, onTrackSelect, onDelete, backgroundColor = '#121212' }) {
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
   const [localQueue, setLocalQueue] = useState(queue);
@@ -190,7 +190,7 @@ export default function QueueSheet({ visible, onClose, queue, currentIndex, onRe
     // Calculate effective dy (gesture dy + scroll delta)
     const scrollDelta = scrollOffset.current - startScrollOffset.current;
     const effectiveDy = dy + scrollDelta;
-    
+
     dragY.setValue(effectiveDy);
 
     // estimate target index from drag distance
@@ -224,7 +224,7 @@ export default function QueueSheet({ visible, onClose, queue, currentIndex, onRe
           const newOffset = scrollOffset.current + scrollSpeed;
           if (newOffset < 0) return; // Don't scroll past top
           // We rely on ScrollView to clamp bottom
-          
+
           scrollViewRef.current?.scrollTo({ y: newOffset, animated: false });
           // We need to update the drag position because scrollOffset changed
           // handleDragMove will use the new scrollOffset
@@ -480,6 +480,7 @@ export default function QueueSheet({ visible, onClose, queue, currentIndex, onRe
           styles.container,
           {
             paddingTop: insets.top,
+            backgroundColor: backgroundColor,
             transform: [{ translateY: dismissAnim }]
           }
         ]}

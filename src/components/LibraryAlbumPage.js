@@ -95,6 +95,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
   const [selectedPlaylists, setSelectedPlaylists] = useState(new Set());
   const sheetAnim = useRef(new Animated.Value(0)).current;
   const trackRefs = useRef({});
+  const scrollY = useRef(new Animated.Value(0)).current;
 
   // Animate sheet
   useEffect(() => {
@@ -149,8 +150,9 @@ export default function LibraryAlbumPage({ route, navigation }) {
   };
   const trackScaleAnims = useRef({});
   const [spotifyTracks, setSpotifyTracks] = useState([]);
+  const [albumMetadata, setAlbumMetadata] = useState(null);
   const [loadingSpotify, setLoadingSpotify] = useState(false);
-  const { activeDownloads, albumDownloads, downloadedTracks, recentDownloads, handleDownloadTrack, startAlbumDownload } = useDownload();
+  const { activeDownloads, albumDownloads, downloadedTracks, recentDownloads, handleDownloadTrack, startAlbumDownload, cancelAlbumDownload } = useDownload();
 
   // Album Menu State
   const [albumMenuVisible, setAlbumMenuVisible] = useState(false);
@@ -244,6 +246,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
           // Check if cache is less than 7 days old
           if (Date.now() - parsed.timestamp < 7 * 24 * 60 * 60 * 1000) {
             setSpotifyTracks(parsed.tracks);
+            setAlbumMetadata(parsed.metadata || null);
             setLoadingSpotify(false);
             return;
           }
@@ -256,7 +259,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
           `https://musicbrainz.org/ws/2/release?query=${encodeURIComponent(searchQuery)}&fmt=json&limit=1`,
           {
             headers: {
-              'User-Agent': 'Prana/1.0.0 (https://github.com/yourusername/prana)',
+              'User-Agent': '8SPINE/1.0.0 (https://github.com/yourusername/8spine)',
             },
           }
         );
@@ -270,34 +273,44 @@ export default function LibraryAlbumPage({ route, navigation }) {
         if (searchData.releases?.length > 0) {
           const release = searchData.releases[0];
 
-          // Fetch release details with recordings (tracks)
+          // Fetch release details with recordings (tracks) and labels
           const releaseResponse = await fetch(
-            `https://musicbrainz.org/ws/2/release/${release.id}?inc=recordings&fmt=json`,
+            `https://musicbrainz.org/ws/2/release/${release.id}?inc=recordings+labels&fmt=json`,
             {
               headers: {
-                'User-Agent': 'Prana/1.0.0 (https://github.com/yourusername/prana)',
+                'User-Agent': '8SPINE/1.0.0 (https://github.com/yourusername/8spine)',
               },
             }
           );
 
           if (releaseResponse.ok) {
             const releaseData = await releaseResponse.json();
+
+            const date = releaseData.date;
+            const label = releaseData['label-info']?.[0]?.label?.name;
+
             const tracks = releaseData.media?.flatMap(medium =>
               medium.tracks?.map(track => ({
                 name: track.title,
                 track_number: track.position,
                 artists: [{ name: artistName }],
                 id: track.id,
+                duration: track.length,
               })) || []
             ) || [];
+
+            const totalDuration = tracks.reduce((acc, t) => acc + (t.duration || 0), 0);
+            const metadata = { date, label, totalDuration };
 
             // Save to cache
             await FileSystem.writeAsStringAsync(cacheFile, JSON.stringify({
               tracks,
+              metadata,
               timestamp: Date.now(),
             }));
 
             setSpotifyTracks(tracks);
+            setAlbumMetadata(metadata);
           }
         }
       } catch (error) {
@@ -421,6 +434,13 @@ export default function LibraryAlbumPage({ route, navigation }) {
     startAlbumDownload(album.key, tracksToDownload);
   };
 
+  const handleStopDownload = () => {
+    if (cancelAlbumDownload) {
+      cancelAlbumDownload(album.key);
+    }
+    closeAlbumMenu();
+  };
+
   const handleAddAlbumToLibrary = async () => {
     if (!addToLibrary) return;
     closeAlbumMenu();
@@ -442,44 +462,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
     }
   };
 
-  const renderProgressCircle = () => {
-    const albumProgress = albumDownloads[album.key];
-    const progress = albumProgress ? albumProgress.progress : 0;
 
-    const size = 24;
-    const strokeWidth = 6;
-    const center = size / 2;
-    const radius = (size - strokeWidth) / 2;
-    const circumference = 2 * Math.PI * radius;
-    const strokeDashoffset = circumference - (progress * circumference);
-
-    return (
-      <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
-        <Svg width={size} height={size}>
-          <Circle
-            stroke="white"
-            cx={center}
-            cy={center}
-            r={radius}
-            strokeWidth={strokeWidth}
-          />
-          <Circle
-            stroke="black"
-            cx={center}
-            cy={center}
-            r={radius}
-            strokeWidth={strokeWidth}
-            strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
-            strokeLinecap="round"
-            rotation="-90"
-            origin={`${center}, ${center}`}
-          />
-        </Svg>
-        <View style={{ position: 'absolute', width: 8, height: 8, backgroundColor: 'black', borderRadius: 1 }} />
-      </View>
-    );
-  };
 
   // Handle playing unowned tracks via Tidal
   const handleUnownedTrackPress = async (track, index, shouldQueueAlbum) => {
@@ -533,7 +516,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
     } else {
       handleUnownedTrackPress(track, index, false);
     }
-    
+
     /* ORIGINAL CODE - RE-ENABLE LATER
     Alert.alert(
       "Play Track",
@@ -634,18 +617,59 @@ export default function LibraryAlbumPage({ route, navigation }) {
         {/* Album Artwork - Square with rounded corners */}
         <View style={styles.artworkContainer}>
           {album?.artwork ? (
-            <Image
-              style={styles.albumArtwork}
+            <Animated.Image
+              style={[
+                styles.albumArtwork,
+                {
+                  transform: [
+                    {
+                      scale: scrollY.interpolate({
+                        inputRange: [-200, 0],
+                        outputRange: [1.4, 1],
+                        extrapolateRight: 'clamp',
+                      })
+                    },
+                    {
+                      translateY: scrollY.interpolate({
+                        inputRange: [-200, 0],
+                        outputRange: [-56, 0], // (280 * 0.4) / 2 = 56. Moves image up to anchor bottom.
+                        extrapolateRight: 'clamp',
+                      })
+                    }
+                  ]
+                }
+              ]}
               source={{ uri: album.artwork }}
               onError={() => {
-                  console.log('[LibraryAlbumPage] Artwork load error for:', album.title);
-                  if (reloadArtwork) reloadArtwork(album.title, typeof album.artist === 'object' ? album.artist.name : album.artist);
+                console.log('[LibraryAlbumPage] Artwork load error for:', album.title);
+                if (reloadArtwork) reloadArtwork(album.title, typeof album.artist === 'object' ? album.artist.name : album.artist);
               }}
             />
           ) : (
-            <View style={[styles.albumArtwork, { backgroundColor: theme.card }]}>
+            <Animated.View style={[
+              styles.albumArtwork,
+              {
+                backgroundColor: theme.card,
+                transform: [
+                  {
+                    scale: scrollY.interpolate({
+                      inputRange: [-200, 0],
+                      outputRange: [1.4, 1],
+                      extrapolateRight: 'clamp',
+                    })
+                  },
+                  {
+                    translateY: scrollY.interpolate({
+                      inputRange: [-200, 0],
+                      outputRange: [-56, 0],
+                      extrapolateRight: 'clamp',
+                    })
+                  }
+                ]
+              }
+            ]}>
               <Ionicons name="disc-outline" size={100} color={theme.secondaryText} />
-            </View>
+            </Animated.View>
           )}
         </View>
 
@@ -701,6 +725,21 @@ export default function LibraryAlbumPage({ route, navigation }) {
             <Text style={[styles.actionButtonText, { color: theme.primaryText }]}>Shuffle</Text>
           </Pressable>
         </View>
+
+        {/* Download Progress Indicator */}
+        {albumDownloads[album.key]?.isDownloading && (
+          <View style={{ width: '100%', marginBottom: 20 }}>
+            <View style={{ height: 4, backgroundColor: theme.border, width: '100%' }}>
+              <View
+                style={{
+                  height: '100%',
+                  width: `${(albumDownloads[album.key].progress || 0) * 100}%`,
+                  backgroundColor: theme.accent
+                }}
+              />
+            </View>
+          </View>
+        )}
 
         {/* Track List */}
         <View style={styles.trackListSection}>
@@ -870,7 +909,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
               {
                 color: theme.secondaryText,
                 marginTop: 16,
-                marginBottom: 32,
+                marginBottom: albumMetadata ? 8 : 32,
               },
             ]}
           >
@@ -884,6 +923,22 @@ export default function LibraryAlbumPage({ route, navigation }) {
               </>
             )}
           </Text>
+
+          {albumMetadata && (
+            <View style={{ alignItems: 'flex-start', marginBottom: 16 }}>
+              <Text style={{ color: theme.secondaryText, fontSize: 13, opacity: 0.7 }}>
+                {albumMetadata.date ? new Date(albumMetadata.date).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : ''}
+                {albumMetadata.date && albumMetadata.label ? ' • ' : ''}
+                {albumMetadata.label || ''}
+              </Text>
+              {albumMetadata.totalDuration > 0 && (
+                <Text style={{ color: theme.secondaryText, fontSize: 13, opacity: 0.7, marginTop: 4 }}>
+                  {Math.floor(albumMetadata.totalDuration / 60000)} min {Math.round((albumMetadata.totalDuration % 60000) / 1000)} sec
+                </Text>
+              )}
+            </View>
+          )}
+          <View style={{ height: 100 }} />
         </View>
       </>
     );
@@ -897,29 +952,48 @@ export default function LibraryAlbumPage({ route, navigation }) {
           <Ionicons name="chevron-back" size={24} color={theme.backButtonText} />
         </Pressable>
 
+        <Animated.View style={{
+          opacity: scrollY.interpolate({
+            inputRange: [300, 350],
+            outputRange: [0, 1],
+            extrapolate: 'clamp',
+          }),
+          alignItems: 'center',
+          flex: 1,
+          marginHorizontal: 10
+        }}>
+          <Text style={{ color: theme.primaryText, fontWeight: 'bold', fontSize: 16 }} numberOfLines={1}>
+            {album.title}
+          </Text>
+          <Text style={{ color: theme.secondaryText, fontSize: 12 }} numberOfLines={1}>
+            {typeof album.artist === 'object' ? album.artist?.name : album.artist}
+          </Text>
+        </Animated.View>
+
         <View>
-          {albumDownloads[album.key]?.isDownloading ? (
-            renderProgressCircle()
-          ) : (
-            <Pressable
-              ref={albumMenuButtonRef}
-              onPress={openAlbumMenu}
-              style={{ padding: 8 }}
-              hitSlop={16}
-            >
-              <Ionicons name="ellipsis-horizontal" size={24} color={theme.primaryText} />
-            </Pressable>
-          )}
+          <Pressable
+            ref={albumMenuButtonRef}
+            onPress={openAlbumMenu}
+            style={{ padding: 8 }}
+            hitSlop={16}
+          >
+            <Ionicons name="ellipsis-horizontal" size={24} color={theme.primaryText} />
+          </Pressable>
         </View>
       </View>
 
-      <ScrollView
+      <Animated.ScrollView
         style={styles.fill}
         contentContainerStyle={styles.scrollViewContent}
         showsVerticalScrollIndicator={false}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: true }
+        )}
+        scrollEventThrottle={16}
       >
         {renderContent()}
-      </ScrollView>
+      </Animated.ScrollView>
 
       {/* Album Context Menu */}
       {albumMenuVisible && (
@@ -982,13 +1056,20 @@ export default function LibraryAlbumPage({ route, navigation }) {
               </>
             )}
 
-            {/* Only show Download if in library and modules are enabled */}
+            {/* Only show Download/Stop if in library and modules are enabled */}
             {isAlbumInLibrary && useTidalForUnowned && (
               <>
-                <Pressable style={styles.contextMenuItem} onPress={handleDownloadAlbum}>
-                  <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Make available offline</Text>
-                  <Ionicons name="download-outline" size={20} color={theme.primaryText} />
-                </Pressable>
+                {albumDownloads[album.key]?.isDownloading ? (
+                  <Pressable style={styles.contextMenuItem} onPress={handleStopDownload}>
+                    <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Stop downloading</Text>
+                    <Ionicons name="close-circle-outline" size={20} color={theme.primaryText} />
+                  </Pressable>
+                ) : (
+                  <Pressable style={styles.contextMenuItem} onPress={handleDownloadAlbum}>
+                    <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Make available offline</Text>
+                    <Ionicons name="download-outline" size={20} color={theme.primaryText} />
+                  </Pressable>
+                )}
                 <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
               </>
             )}

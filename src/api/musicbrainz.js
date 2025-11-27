@@ -1,4 +1,4 @@
-// Simple MusicBrainz API client for Prana
+// Simple MusicBrainz API client for 8SPINE
 // Docs: https://musicbrainz.org/doc/Development/XML_Web_Service/Version_2
 
 const BASE_URL = 'https://musicbrainz.org/ws/2';
@@ -7,7 +7,7 @@ const BASE_URL = 'https://musicbrainz.org/ws/2';
 // Do NOT put secrets here. This is just public app identification.
 const DEFAULT_HEADERS = {
   'Accept': 'application/json',
-  'User-Agent': 'PranaMusic/1.0.0 ( https://example.com/contact )',
+  'User-Agent': '8SPINEMusic/1.0.0 ( https://example.com/contact )',
 };
 
 // A tiny wrapper around fetch for MusicBrainz
@@ -82,7 +82,7 @@ export async function browseReleaseGroups(artistId, options = {}) {
       limit: options.limit ?? 20,
       offset: options.offset ?? 0,
       // primary types: Album, EP, Single
-      type: 'album|ep', 
+      type: 'album|ep',
     },
   });
 }

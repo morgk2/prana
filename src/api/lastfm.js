@@ -1,4 +1,4 @@
-// Spotify-backed music search client for Prana
+// Spotify-backed music search client for 8SPINE
 // This file keeps the old Last.fm-style function names so App.js can stay mostly unchanged.
 // IMPORTANT: For production, move the Spotify client secret to a secure backend.
 
@@ -104,6 +104,9 @@ function mapSpotifyAlbumToLastfm(album) {
     mbid: album.id,
     artist: { name: album.artists?.[0]?.name ?? '' },
     image: mapSpotifyImagesToLastfmStyle(album.images),
+    total_tracks: album.total_tracks,
+    release_date: album.release_date,
+    album_type: album.album_type,
   };
 }
 
@@ -185,38 +188,69 @@ export async function getArtistInfo(artistName) {
     getSpotifyToken(),
     findSpotifyArtistByName(artistName),
   ]);
-  
+
   return mapSpotifyArtistToLastfm(spotifyArtist);
 }
 
-export async function getRelatedArtists(artistName, { limit = 20 } = {}) {
-  const [token, spotifyArtist] = await Promise.all([
-    getSpotifyToken(),
-    findSpotifyArtistByName(artistName),
-  ]);
+// Helper to fetch from real Last.fm API as fallback
+async function getLastfmSimilarArtists(artistName, limit) {
+  try {
+    const url = new URL(LASTFM_BASE_URL);
+    url.searchParams.set('method', 'artist.getsimilar');
+    url.searchParams.set('artist', artistName);
+    url.searchParams.set('api_key', LASTFM_API_KEY);
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('limit', String(limit));
 
-  if (!spotifyArtist || !spotifyArtist.id) return [];
+    const res = await fetch(url.toString());
+    if (!res.ok) return [];
 
-  const url = `${SPOTIFY_ARTISTS_URL}/${encodeURIComponent(spotifyArtist.id)}/related-artists`;
-  
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+    const json = await res.json();
+    const items = json.similarartists?.artist ?? [];
 
-  if (!res.ok) {
-    if (res.status === 404) {
-        console.warn(`Spotify related-artists 404 for artist ID: ${spotifyArtist.id}`);
-        return [];
-    }
-    const text = await res.text().catch(() => '');
-    throw new Error(`Spotify related-artists error ${res.status}: ${text}`);
+    return items.map(artist => ({
+      name: artist.name,
+      mbid: artist.mbid || artist.name,
+      listeners: undefined,
+      image: Array.isArray(artist.image) ? artist.image : [],
+    }));
+  } catch (e) {
+    console.warn('Last.fm fallback failed', e);
+    return [];
   }
+}
 
-  const json = await res.json();
-  const items = json.artists ?? [];
-  return items.slice(0, limit).map(mapSpotifyArtistToLastfm).filter(Boolean);
+export async function getRelatedArtists(artistName, { limit = 20 } = {}) {
+  try {
+    const [token, spotifyArtist] = await Promise.all([
+      getSpotifyToken(),
+      findSpotifyArtistByName(artistName),
+    ]);
+
+    if (!spotifyArtist || !spotifyArtist.id) {
+      return getLastfmSimilarArtists(artistName, limit);
+    }
+
+    const url = `${SPOTIFY_ARTISTS_URL}/${encodeURIComponent(spotifyArtist.id)}/related-artists`;
+
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!res.ok) {
+      console.warn(`Spotify related-artists error ${res.status} for ${artistName}. Falling back to Last.fm.`);
+      return getLastfmSimilarArtists(artistName, limit);
+    }
+
+    const json = await res.json();
+    const items = json.artists ?? [];
+    return items.slice(0, limit).map(mapSpotifyArtistToLastfm).filter(Boolean);
+  } catch (e) {
+    console.warn('Error fetching related artists from Spotify, falling back to Last.fm', e);
+    return getLastfmSimilarArtists(artistName, limit);
+  }
 }
 
 // Get top tracks for an artist name (best Spotify match)
@@ -386,7 +420,7 @@ export async function getAlbumInfo({ artist, album, mbid }) {
 // Get playlist info and tracks (Spotify-backed)
 export async function getSpotifyPlaylist(playlistId) {
   const token = await getSpotifyToken();
-  
+
   const url = new URL(`${SPOTIFY_PLAYLISTS_URL}/${playlistId}`);
   url.searchParams.set('market', 'US');
 

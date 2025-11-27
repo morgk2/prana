@@ -22,6 +22,7 @@ import ImportExternalPlaylist from './src/components/ImportExternalPlaylist';
 import SongPlayer from './src/components/SongPlayer';
 import HomeScreen from './src/components/HomeScreen';
 import ModulesPage from './src/components/ModulesPage';
+import PlayerColorsPage from './src/components/PlayerColorsPage';
 import { colors } from './src/theme/colors';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
@@ -71,33 +72,19 @@ const PLAYER_STATE_FILE = LIBRARY_DIR + '/player_state.json';
 const LibraryStack = createNativeStackNavigator();
 const RootStack = createNativeStackNavigator();
 
-async function detectIntent(query) {
+function detectIntent(query, artistResults, albumResults, trackResults) {
   const q = query.trim();
   const qLower = q.toLowerCase();
-  if (!q) {
-    return { intent: 'mixed', artists: [], albums: [], tracks: [] };
-  }
-
-  const [artistResults, albumResults, trackResults] = await Promise.all([
-    searchLastfmArtists(q, { limit: 3 }),
-    searchLastfmAlbums(q, { limit: 3 }),
-    searchLastfmTracks(q, { limit: 3 }),
-  ]);
+  if (!q) return 'mixed';
 
   const topArtist = artistResults[0];
   const topAlbum = albumResults[0];
   const topTrack = trackResults[0];
 
   // 1) exact equality
-  if (topArtist && topArtist.name.toLowerCase() === qLower) {
-    return { intent: 'artist', artists: artistResults, albums: albumResults, tracks: trackResults };
-  }
-  if (topAlbum && topAlbum.name.toLowerCase() === qLower) {
-    return { intent: 'album', artists: artistResults, albums: albumResults, tracks: trackResults };
-  }
-  if (topTrack && topTrack.name.toLowerCase() === qLower) {
-    return { intent: 'track', artists: artistResults, albums: albumResults, tracks: trackResults };
-  }
+  if (topArtist && topArtist.name.toLowerCase() === qLower) return 'artist';
+  if (topAlbum && topAlbum.name.toLowerCase() === qLower) return 'album';
+  if (topTrack && topTrack.name.toLowerCase() === qLower) return 'track';
 
   // 2) score-based dominance
   const artistScore = topArtist ? scoreNameMatch(topArtist.name, q) : 0;
@@ -112,7 +99,7 @@ async function detectIntent(query) {
     artistScore > dominance * albumScore &&
     artistScore > dominance * trackScore
   ) {
-    return { intent: 'artist', artists: artistResults, albums: albumResults, tracks: trackResults };
+    return 'artist';
   }
 
   if (
@@ -120,7 +107,7 @@ async function detectIntent(query) {
     albumScore > dominance * artistScore &&
     albumScore > dominance * trackScore
   ) {
-    return { intent: 'album', artists: artistResults, albums: albumResults, tracks: trackResults };
+    return 'album';
   }
 
   if (
@@ -128,22 +115,20 @@ async function detectIntent(query) {
     trackScore > dominance * artistScore &&
     trackScore > dominance * albumScore
   ) {
-    return { intent: 'track', artists: artistResults, albums: albumResults, tracks: trackResults };
+    return 'track';
   }
 
   // 3) pattern hints
-  if (qLower.includes(' - ') || qLower.includes(' by ')) {
-    return { intent: 'track', artists: artistResults, albums: albumResults, tracks: trackResults };
-  }
+  if (qLower.includes(' - ') || qLower.includes(' by ')) return 'track';
   if (
     qLower.includes(' album') ||
     qLower.includes(' ep') ||
     qLower.includes(' lp')
   ) {
-    return { intent: 'album', artists: artistResults, albums: albumResults, tracks: trackResults };
+    return 'album';
   }
 
-  return { intent: 'mixed', artists: artistResults, albums: albumResults, tracks: trackResults };
+  return 'mixed';
 }
 
 
@@ -356,7 +341,7 @@ function LibraryHomeScreen({ route, navigation }) {
         </View>
 
         {/* Navigation Buttons */}
-        <View style={[styles.libraryNavContainer, { backgroundColor: theme.card }]}>
+        <View style={[styles.libraryNavContainer, { backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }]}>
           <Pressable
             style={[styles.libraryNavButton, styles.libraryNavButtonFirst, { borderBottomColor: theme.border }]}
             onPress={() => navigation.navigate('LibraryPlaylists', {
@@ -702,7 +687,7 @@ function CachePage({ route, navigation }) {
 
           <View style={[styles.settingsRow, { backgroundColor: theme.card, flexDirection: 'column', alignItems: 'flex-start', gap: 12 }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
-              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Prana</Text>
+              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>8SPINE</Text>
               <Text style={{ color: theme.primaryText }}>{formatBytes(storageInfo.appUsed)}</Text>
             </View>
 
@@ -730,7 +715,7 @@ function CachePage({ route, navigation }) {
               <View style={{ flexDirection: 'row', gap: 12 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.primaryText }} />
-                  <Text style={{ color: theme.secondaryText, fontSize: 12 }}>Prana</Text>
+                  <Text style={{ color: theme.secondaryText, fontSize: 12 }}>8SPINE</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.secondaryText, opacity: 0.3 }} />
@@ -746,7 +731,7 @@ function CachePage({ route, navigation }) {
 
         <View style={[styles.settingsSection, { marginTop: 20 }]}>
           <Text style={[styles.sectionHeader, { color: theme.primaryText, marginBottom: 12 }]}>Cache Management</Text>
-          
+
           <Pressable
             style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border, justifyContent: 'center' }]}
             onPress={handleClearStreamCache}
@@ -785,8 +770,9 @@ function CachePage({ route, navigation }) {
 }
 
 // Appearance Page
+// Appearance Page
 function AppearancePage({ route, navigation }) {
-  const { theme } = route.params;
+  const { theme, userTheme, setUserTheme } = route.params;
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const [menuAnim] = useState(new Animated.Value(0));
@@ -806,10 +792,6 @@ function AppearancePage({ route, navigation }) {
           finalY = pageY - MENU_HEIGHT + 20;
         }
 
-        // Align right side of menu with right side of row (minus padding)
-        // or just left align if that's how track menu works. 
-        // Track menu uses: left: menuPosition.x (which is pageX).
-        // Let's stick to pageX to align with the start of the row.
         setMenuPosition({ x: pageX + 20, y: finalY });
 
         setShowThemeMenu(true);
@@ -831,6 +813,17 @@ function AppearancePage({ route, navigation }) {
     }).start(() => {
       setShowThemeMenu(false);
     });
+  };
+
+  const handleSetTheme = (mode) => {
+    setUserTheme(mode);
+    closeThemeMenu();
+  };
+
+  const getThemeLabel = () => {
+    if (userTheme === 'auto') return 'Auto';
+    if (userTheme === 'light') return 'Light';
+    return 'Dark';
   };
 
   return (
@@ -857,7 +850,23 @@ function AppearancePage({ route, navigation }) {
               <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Theme</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={{ color: theme.secondaryText, fontSize: 16 }}>Light</Text>
+              <Text style={{ color: theme.secondaryText, fontSize: 16 }}>{getThemeLabel()}</Text>
+              <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
+            </View>
+          </Pressable>
+
+          <Pressable
+            style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
+            onPress={() => navigation.navigate('PlayerColors', { theme, playerColorMode: route.params.playerColorMode, setPlayerColorMode: route.params.setPlayerColorMode })}
+          >
+            <View style={styles.settingsRowLeft}>
+              <Ionicons name="color-fill-outline" size={24} color={theme.primaryText} />
+              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Player Colors</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={{ color: theme.secondaryText, fontSize: 16 }}>
+                {route.params.playerColorMode === 'light' ? 'Light' : 'Dark'}
+              </Text>
               <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
             </View>
           </Pressable>
@@ -888,17 +897,19 @@ function AppearancePage({ route, navigation }) {
               }
             ]}
           >
-            <Pressable style={styles.contextMenuItem} onPress={closeThemeMenu}>
+            <Pressable style={styles.contextMenuItem} onPress={() => handleSetTheme('light')}>
               <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Light</Text>
-              <Ionicons name="checkmark" size={20} color={theme.accent} />
+              {userTheme === 'light' && <Ionicons name="checkmark" size={20} color={theme.accent} />}
             </Pressable>
             <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
-            <Pressable style={styles.contextMenuItem} disabled={true}>
-              <Text style={[styles.contextMenuText, { color: theme.secondaryText, opacity: 0.5 }]}>Dark</Text>
+            <Pressable style={styles.contextMenuItem} onPress={() => handleSetTheme('dark')}>
+              <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Dark</Text>
+              {userTheme === 'dark' && <Ionicons name="checkmark" size={20} color={theme.accent} />}
             </Pressable>
             <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
-            <Pressable style={styles.contextMenuItem} disabled={true}>
-              <Text style={[styles.contextMenuText, { color: theme.secondaryText, opacity: 0.5 }]}>Auto</Text>
+            <Pressable style={styles.contextMenuItem} onPress={() => handleSetTheme('auto')}>
+              <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Auto</Text>
+              {userTheme === 'auto' && <Ionicons name="checkmark" size={20} color={theme.accent} />}
             </Pressable>
           </Animated.View>
         </>
@@ -1075,11 +1086,11 @@ function AboutPage({ route, navigation }) {
       <View style={{ flex: 1, padding: 24, alignItems: 'center', justifyContent: 'center' }}>
         <Image
           source={require('./assets/logo.png')}
-          style={{ width: 120, height: 120, marginBottom: 24, borderRadius: 24 }}
+          style={{ width: 120, height: 120, marginBottom: 24, borderRadius: 24, tintColor: theme.primaryText }}
         />
-        <Text style={[styles.title, { color: theme.primaryText, marginBottom: 16, textAlign: 'center' }]}>Prana</Text>
+        <Text style={[styles.title, { color: theme.primaryText, marginBottom: 16, textAlign: 'center' }]}>8SPINE</Text>
         <Text style={[styles.secondaryText, { color: theme.secondaryText, textAlign: 'center', fontSize: 16, lineHeight: 24 }]}>
-          This is the closed testing of Prana, modular advanced music cataloging and playing app.
+          This is the closed testing of 8SPINE, modular advanced music cataloging and playing app.
         </Text>
       </View>
     </View>
@@ -1104,10 +1115,10 @@ function DonatePage({ route, navigation }) {
         <View style={{ flex: 1, padding: 24, alignItems: 'center', justifyContent: 'center' }}>
           <Image
             source={require('./assets/logo.png')}
-            style={{ width: 120, height: 120, marginBottom: 24, borderRadius: 24 }}
+            style={{ width: 120, height: 120, marginBottom: 24, borderRadius: 24, tintColor: theme.primaryText }}
           />
-          <Text style={[styles.title, { color: theme.primaryText, marginBottom: 16, textAlign: 'center' }]}>Support Prana</Text>
-          
+          <Text style={[styles.title, { color: theme.primaryText, marginBottom: 16, textAlign: 'center' }]}>Support 8SPINE</Text>
+
           <Text style={[{ color: theme.secondaryText, textAlign: 'center', fontSize: 16, lineHeight: 24, marginBottom: 20 }]}>
             I'm not planning on adding ads to this app, so the only way I'm keeping this app up is by you donating. Help me pay the bills.
           </Text>
@@ -1132,7 +1143,7 @@ function DonatePage({ route, navigation }) {
           </Pressable>
 
           <Text style={[{ color: theme.secondaryText, textAlign: 'center', fontSize: 14, lineHeight: 20, marginTop: 30 }]}>
-            Every donation helps keep Prana ad-free and supports continued development. Thank you for your support! ❤️
+            Every donation helps keep 8SPINE ad-free and supports continued development. Thank you for your support! ❤️
           </Text>
         </View>
       </ScrollView>
@@ -1142,7 +1153,9 @@ function DonatePage({ route, navigation }) {
 
 function AppContent() {
   const colorScheme = useColorScheme();
-  const theme = colors[colorScheme] || colors.dark;
+  const [userTheme, setUserTheme] = useState('auto');
+  const activeColorScheme = userTheme === 'auto' ? colorScheme : userTheme;
+  const theme = colors[activeColorScheme] || colors.dark;
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
@@ -1158,6 +1171,7 @@ function AppContent() {
   const [tracks, setTracks] = useState([]);
   const [albums, setAlbums] = useState([]);
   const [error, setError] = useState(null);
+  const [intent, setIntent] = useState('mixed');
 
   const handleSearch = async (q) => {
     if (!q || !q.trim()) return;
@@ -1170,6 +1184,9 @@ function AppContent() {
         searchLastfmTracks(q, { limit: 10 }),
         searchLastfmAlbums(q, { limit: 10 }),
       ]);
+
+      const detectedIntent = detectIntent(q, artistResults, albumResults, trackResults);
+      setIntent(detectedIntent);
 
       setArtists(artistResults);
       setTracks(trackResults);
@@ -1330,6 +1347,7 @@ function AppContent() {
   const [importProgress, setImportProgress] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
   const [isLibraryLoaded, setIsLibraryLoaded] = useState(false);
+  const [playerColorMode, setPlayerColorMode] = useState('dark'); // 'dark' | 'light'
   const queueNotificationTimer = useRef(null);
   const queueNotificationAnim = useRef(new Animated.Value(0)).current;
 
@@ -1395,6 +1413,12 @@ function AppContent() {
         }
         if (settings.modules) {
           setModules(settings.modules);
+        }
+        if (settings.playerColorMode !== undefined) {
+          setPlayerColorMode(settings.playerColorMode);
+        }
+        if (settings.userTheme) {
+          setUserTheme(settings.userTheme);
         }
       }
     } catch (e) {
@@ -1487,18 +1511,18 @@ function AppContent() {
       // Clear Cache Directory
       try {
         if (FileSystem.cacheDirectory) {
-            await FileSystem.deleteAsync(FileSystem.cacheDirectory, { idempotent: true });
-            await FileSystem.makeDirectoryAsync(FileSystem.cacheDirectory, { intermediates: true });
+          await FileSystem.deleteAsync(FileSystem.cacheDirectory, { idempotent: true });
+          await FileSystem.makeDirectoryAsync(FileSystem.cacheDirectory, { intermediates: true });
         }
       } catch (err) {
-          console.warn('Failed to clear cache directory', err);
+        console.warn('Failed to clear cache directory', err);
       }
 
       // Clear Artwork Cache
       try {
-          await clearArtworkCacheManually();
+        await clearArtworkCacheManually();
       } catch (err) {
-          console.warn('Failed to clear artwork cache', err);
+        console.warn('Failed to clear artwork cache', err);
       }
 
       Alert.alert('Success', 'All data has been cleared. The app is now empty.');
@@ -1525,6 +1549,16 @@ function AppContent() {
       saveSettings({ modules: next });
       return next;
     });
+  };
+
+  const updatePlayerColorMode = async (mode) => {
+    setPlayerColorMode(mode);
+    await saveSettings({ playerColorMode: mode });
+  };
+
+  const updateUserTheme = async (mode) => {
+    setUserTheme(mode);
+    await saveSettings({ userTheme: mode });
   };
 
   const savePlaylists = async (newPlaylists) => {
@@ -1654,15 +1688,15 @@ function AppContent() {
           // 2. Check Metadata match (Name + Artist + Album)
           const nameMatch = t.name === baseEntry.name;
           const artistMatch = getArtistName(t) === getArtistName(baseEntry);
-          
+
           // Helper for loose album matching (handling "Single" suffix)
           const isSameAlbum = (a, b) => {
-             if (a === b) return true;
-             if (!a || !b) return false;
-             const normalize = (s) => s.toLowerCase().replace(/ - single$/i, '').replace(/ \(single\)$/i, '').trim();
-             return normalize(a) === normalize(b);
+            if (a === b) return true;
+            if (!a || !b) return false;
+            const normalize = (s) => s.toLowerCase().replace(/ - single$/i, '').replace(/ \(single\)$/i, '').trim();
+            return normalize(a) === normalize(b);
           };
-          
+
           const albumMatch = isSameAlbum(t.album, baseEntry.album);
 
           return nameMatch && artistMatch && albumMatch;
@@ -1985,7 +2019,7 @@ function AppContent() {
 
   // Animate tab bar when route changes or player expands
   useEffect(() => {
-    const isSettingsPage = ['Settings', 'Appearance', 'Cache', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules', 'ImportSpotifyPlaylist', 'About'].includes(currentRoute);
+    const isSettingsPage = ['Settings', 'Appearance', 'PlayerColors', 'Cache', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules', 'ImportSpotifyPlaylist', 'About'].includes(currentRoute);
     const shouldHide = isSettingsPage || isPlayerExpanded;
 
     Animated.timing(tabBarAnim, {
@@ -2060,40 +2094,40 @@ function AppContent() {
     );
 
     if (!track) {
-        console.warn('[App] No track found for album reload:', albumTitle);
-        return;
+      console.warn('[App] No track found for album reload:', albumTitle);
+      return;
     }
 
     try {
-        // Use a slight delay to prevent rapid-fire reloads if multiple images fail at once
-        const newArtwork = await getArtworkWithFallback({
-            name: track.name,
-            artist: artistName,
-            album: albumTitle
-        }, true); // Force refresh
+      // Use a slight delay to prevent rapid-fire reloads if multiple images fail at once
+      const newArtwork = await getArtworkWithFallback({
+        name: track.name,
+        artist: artistName,
+        album: albumTitle
+      }, true); // Force refresh
 
-        if (newArtwork && newArtwork.length > 0) {
-            const imageUrl = pickImageUrl(newArtwork, 'extralarge');
-            if (imageUrl) {
-                 console.log('[App] Found new artwork:', imageUrl);
-                 // Update all tracks in this album
-                 setLibrary(prev => {
-                     const next = prev.map(t => {
-                        const tAlbum = t.album?.title || t.album;
-                        const tArtist = t.artist?.name || t.artist;
-                         // Match album and artist (handling string vs object)
-                         if (tAlbum === albumTitle && (tArtist === artistName || (typeof t.artist === 'object' && t.artist.name === artistName))) {
-                             return { ...t, image: newArtwork };
-                         }
-                         return t;
-                     });
-                     saveLibrary(next);
-                     return next;
-                 });
-            }
+      if (newArtwork && newArtwork.length > 0) {
+        const imageUrl = pickImageUrl(newArtwork, 'extralarge');
+        if (imageUrl) {
+          console.log('[App] Found new artwork:', imageUrl);
+          // Update all tracks in this album
+          setLibrary(prev => {
+            const next = prev.map(t => {
+              const tAlbum = t.album?.title || t.album;
+              const tArtist = t.artist?.name || t.artist;
+              // Match album and artist (handling string vs object)
+              if (tAlbum === albumTitle && (tArtist === artistName || (typeof t.artist === 'object' && t.artist.name === artistName))) {
+                return { ...t, image: newArtwork };
+              }
+              return t;
+            });
+            saveLibrary(next);
+            return next;
+          });
         }
+      }
     } catch (e) {
-        console.warn('[App] Failed to reload artwork', e);
+      console.warn('[App] Failed to reload artwork', e);
     }
   };
 
@@ -2499,26 +2533,28 @@ function AppContent() {
   // Search tab = API results.
   // Library tab = Local library.
 
-  const searchData = [
-    // artists
-    ...artists.map((a, index) => ({
+  const searchData = useMemo(() => {
+    const artistItems = artists.map((a, index) => ({
       key: `artist-${a.mbid || a.name}-${index}`,
       type: 'artist',
       item: a,
-    })),
-    // albums
-    ...albums.map((a, index) => ({
+    }));
+    const albumItems = albums.map((a, index) => ({
       key: `album-${a.mbid || a.name}-${index}`,
       type: 'album',
       item: a,
-    })),
-    // tracks
-    ...tracks.map((t, index) => ({
+    }));
+    const trackItems = tracks.map((t, index) => ({
       key: `track-${t.mbid || t.name}-${index}`,
       type: 'track',
       item: t,
-    })),
-  ];
+    }));
+
+    if (intent === 'artist') return [...artistItems, ...albumItems, ...trackItems];
+    if (intent === 'album') return [...albumItems, ...trackItems, ...artistItems];
+    if (intent === 'track') return [...trackItems, ...artistItems, ...albumItems];
+    return [...artistItems, ...albumItems, ...trackItems];
+  }, [artists, albums, tracks, intent]);
 
   // Helper function to safely get artist name
   const getArtistName = (artist) => {
@@ -2532,52 +2568,132 @@ function AppContent() {
   const renderSearchResultRow = (item, index) => {
     const { type, item: raw } = item;
 
+    // Create a unique animation value for this item
+    // We use useRef to persist the value, but we need it to be unique per item/index
+    // A simple way is to use a new Animated.Value for each render if we don't care about recycling,
+    // but for performance in a list, we should ideally use a declarative animation or a hook.
+    // Given this is a map inside a ScrollView (not FlatList), we can use a hook if we extract the component,
+    // OR we can just create the value here and animate it on mount.
+    // Since we can't easily extract to a component without major refactor, let's use an inline component wrapper.
+
+    return (
+      <SearchResultItem
+        key={item.key || index}
+        item={item}
+        index={index}
+        theme={theme}
+        onPressArtist={() => { addToRecentSearches(query); openArtistPage(raw); }}
+        onPressAlbum={() => { addToRecentSearches(query); openAlbumPage(raw); }}
+        onPressTrack={() => { addToRecentSearches(query); handleSearchTrackPress(raw); }}
+      />
+    );
+  };
+
+  // Extracted component for animation
+  const SearchResultItem = ({ item, index, theme, onPressArtist, onPressAlbum, onPressTrack }) => {
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const translateY = useRef(new Animated.Value(20)).current;
+
+    useEffect(() => {
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 400,
+          delay: index * 50, // Stagger effect
+          useNativeDriver: true,
+        }),
+        Animated.spring(translateY, {
+          toValue: 0,
+          friction: 8,
+          tension: 50,
+          delay: index * 50,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, []);
+
+    const { type, item: raw } = item;
+
     if (type === 'artist') {
       const imageUrl = pickImageUrl(raw.image, 'large');
       return (
-        <Pressable
-          key={index}
-          style={styles.modernSearchResultItem}
-          onPress={() => openArtistPage(raw)}
-        >
-          <View style={styles.modernResultImageContainer}>
-            {imageUrl ? (
-              <Image source={{ uri: imageUrl }} style={styles.modernResultImageCircle} />
-            ) : (
-              <View style={[styles.modernResultImageCircle, { backgroundColor: theme.card }]}>
-                <Ionicons name="person" size={24} color={theme.secondaryText} />
-              </View>
-            )}
-          </View>
-          <View style={styles.modernResultTextContainer}>
-            <Text style={[styles.modernResultTitle, { color: theme.primaryText }]} numberOfLines={1}>
-              {raw.name}
-            </Text>
-            <Text style={[styles.modernResultSubtitle, { color: theme.secondaryText }]} numberOfLines={1}>
-              Artist • {raw.listeners ? `${Number(raw.listeners).toLocaleString()} listeners` : 'Music'}
-            </Text>
-          </View>
-          <View style={styles.modernResultTypeContainer}>
-            <Ionicons name="person-outline" size={16} color={theme.secondaryText} />
-          </View>
-        </Pressable>
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY }] }}>
+          <Pressable
+            style={styles.modernSearchResultItem}
+            onPress={onPressArtist}
+          >
+            <View style={styles.modernResultImageContainer}>
+              {imageUrl ? (
+                <Image source={{ uri: imageUrl }} style={styles.modernResultImageCircle} />
+              ) : (
+                <View style={[styles.modernResultImageCircle, { backgroundColor: theme.card }]}>
+                  <Ionicons name="person" size={24} color={theme.secondaryText} />
+                </View>
+              )}
+            </View>
+            <View style={styles.modernResultTextContainer}>
+              <Text style={[styles.modernResultTitle, { color: theme.primaryText }]} numberOfLines={1}>
+                {raw.name}
+              </Text>
+              <Text style={[styles.modernResultSubtitle, { color: theme.secondaryText }]} numberOfLines={1}>
+                Artist • {raw.listeners ? `${Number(raw.listeners).toLocaleString()} listeners` : 'Music'}
+              </Text>
+            </View>
+            <View style={styles.modernResultTypeContainer}>
+              <Ionicons name="person-outline" size={16} color={theme.secondaryText} />
+            </View>
+          </Pressable>
+        </Animated.View>
       );
     }
 
     if (type === 'album') {
       const imageUrl = pickImageUrl(raw.image, 'large');
       return (
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY }] }}>
+          <Pressable
+            style={styles.modernSearchResultItem}
+            onPress={onPressAlbum}
+          >
+            <View style={styles.modernResultImageContainer}>
+              {imageUrl ? (
+                <Image source={{ uri: imageUrl }} style={styles.modernResultImageSquare} />
+              ) : (
+                <View style={[styles.modernResultImageSquare, { backgroundColor: theme.card }]}>
+                  <Ionicons name="albums" size={24} color={theme.secondaryText} />
+                </View>
+              )}
+            </View>
+            <View style={styles.modernResultTextContainer}>
+              <Text style={[styles.modernResultTitle, { color: theme.primaryText }]} numberOfLines={1}>
+                {raw.name}
+              </Text>
+              <Text style={[styles.modernResultSubtitle, { color: theme.secondaryText }]} numberOfLines={1}>
+                Album • {getArtistName(raw.artist)}
+              </Text>
+            </View>
+            <View style={styles.modernResultTypeContainer}>
+              <Ionicons name="albums-outline" size={16} color={theme.secondaryText} />
+            </View>
+          </Pressable>
+        </Animated.View>
+      );
+    }
+
+    // Track
+    const imageUrl = pickImageUrl(raw.image, 'large');
+    return (
+      <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY }] }}>
         <Pressable
-          key={index}
           style={styles.modernSearchResultItem}
-          onPress={() => openAlbumPage(raw)}
+          onPress={onPressTrack}
         >
           <View style={styles.modernResultImageContainer}>
             {imageUrl ? (
               <Image source={{ uri: imageUrl }} style={styles.modernResultImageSquare} />
             ) : (
               <View style={[styles.modernResultImageSquare, { backgroundColor: theme.card }]}>
-                <Ionicons name="albums" size={24} color={theme.secondaryText} />
+                <Ionicons name="musical-note" size={24} color={theme.secondaryText} />
               </View>
             )}
           </View>
@@ -2586,45 +2702,14 @@ function AppContent() {
               {raw.name}
             </Text>
             <Text style={[styles.modernResultSubtitle, { color: theme.secondaryText }]} numberOfLines={1}>
-              Album • {getArtistName(raw.artist)}
+              Song • {getArtistName(raw.artist)}
             </Text>
           </View>
           <View style={styles.modernResultTypeContainer}>
-            <Ionicons name="albums-outline" size={16} color={theme.secondaryText} />
+            <Ionicons name="musical-note-outline" size={16} color={theme.secondaryText} />
           </View>
         </Pressable>
-      );
-    }
-
-    // Track
-    const imageUrl = pickImageUrl(raw.image, 'large');
-    return (
-      <Pressable
-        key={index}
-        style={styles.modernSearchResultItem}
-        onPress={() => handleSearchTrackPress(raw)}
-      >
-        <View style={styles.modernResultImageContainer}>
-          {imageUrl ? (
-            <Image source={{ uri: imageUrl }} style={styles.modernResultImageSquare} />
-          ) : (
-            <View style={[styles.modernResultImageSquare, { backgroundColor: theme.card }]}>
-              <Ionicons name="musical-note" size={24} color={theme.secondaryText} />
-            </View>
-          )}
-        </View>
-        <View style={styles.modernResultTextContainer}>
-          <Text style={[styles.modernResultTitle, { color: theme.primaryText }]} numberOfLines={1}>
-            {raw.name}
-          </Text>
-          <Text style={[styles.modernResultSubtitle, { color: theme.secondaryText }]} numberOfLines={1}>
-            Song • {getArtistName(raw.artist)}
-          </Text>
-        </View>
-        <View style={styles.modernResultTypeContainer}>
-          <Ionicons name="musical-note-outline" size={16} color={theme.secondaryText} />
-        </View>
-      </Pressable>
+      </Animated.View>
     );
   };
 
@@ -2732,6 +2817,14 @@ function AppContent() {
     ? pickImageUrl(currentTrack.image, 'large')
     : null;
 
+  const handlePlayerArtistPress = (artistName) => {
+    minimizePlayer();
+    // Small delay to allow player animation to start/finish smoothly before navigation transition
+    setTimeout(() => {
+      openArtistByName(artistName);
+    }, 300);
+  };
+
   return (
     <DownloadProvider addToLibrary={addToLibrary} useTidalForUnowned={useTidalForUnowned}>
       <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -2787,7 +2880,40 @@ function AppContent() {
             </RootStack.Screen>
             <RootStack.Screen name="Artist" component={ArtistPage} />
             <RootStack.Screen name="Settings" component={SettingsPage} />
-            <RootStack.Screen name="Appearance" component={AppearancePage} />
+            <RootStack.Screen
+              name="Appearance"
+              children={(props) => (
+                <AppearancePage
+                  {...props}
+                  route={{
+                    ...props.route,
+                    params: {
+                      ...props.route.params,
+                      playerColorMode,
+                      setPlayerColorMode: updatePlayerColorMode,
+                      userTheme,
+                      setUserTheme: updateUserTheme,
+                    },
+                  }}
+                />
+              )}
+            />
+            <RootStack.Screen
+              name="PlayerColors"
+              children={(props) => (
+                <PlayerColorsPage
+                  {...props}
+                  route={{
+                    ...props.route,
+                    params: {
+                      ...props.route.params,
+                      playerColorMode,
+                      setPlayerColorMode: updatePlayerColorMode,
+                    },
+                  }}
+                />
+              )}
+            />
             <RootStack.Screen name="Cache" component={CachePage} />
             <RootStack.Screen name="AdvancedCatalog" component={AdvancedCatalogPage} />
             <RootStack.Screen name="SelfHostedCollection" component={SelfHostedCollectionPage} />
@@ -2877,14 +3003,14 @@ function AppContent() {
               <Text style={[styles.importProgressPercent, { color: theme.secondaryText }]}>{Math.round(importProgress * 100)}%</Text>
             </View>
             <View style={[styles.importProgressBarBackground, { backgroundColor: theme.border }]}>
-              <View 
+              <View
                 style={[
-                  styles.importProgressBarFill, 
-                  { 
+                  styles.importProgressBarFill,
+                  {
                     backgroundColor: theme.accent,
-                    width: `${importProgress * 100}%` 
+                    width: `${importProgress * 100}%`
                   }
-                ]} 
+                ]}
               />
             </View>
           </View>
@@ -2989,12 +3115,14 @@ function AppContent() {
             onQueueReorder={handleQueueReorder}
             theme={theme}
             setPlayerControls={setPlayerControls}
+            onArtistPress={handlePlayerArtistPress}
             isVisible={isPlayerExpanded}
             toggleFavorite={toggleFavorite}
             isFavorite={isCurrentTrackFavorite}
             shouldPlay={shouldAutoPlay}
             zIndex={isPlayerExpanded ? 2000 : 1}
-            shouldHide={['Settings', 'Appearance', 'Cache', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules', 'ImportSpotifyPlaylist', 'About'].includes(currentRoute)}
+            shouldHide={['Settings', 'Appearance', 'PlayerColors', 'Cache', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules', 'ImportSpotifyPlaylist', 'About'].includes(currentRoute)}
+            playerColorMode={playerColorMode}
           />
         )}
       </View>

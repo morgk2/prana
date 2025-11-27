@@ -17,7 +17,7 @@ export default function ModulesPage({ route, navigation }) {
   const [currentView, setCurrentView] = useState('list'); // 'list' or 'module_details'
   const [activeModule, setActiveModule] = useState(null);
   const [modulesList, setModulesList] = useState([]);
-  
+
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -34,7 +34,7 @@ export default function ModulesPage({ route, navigation }) {
 
   // Help Modal state
   const [showHelpModal, setShowHelpModal] = useState(false);
-  
+
   // Installation loading state
   const [installingModule, setInstallingModule] = useState(null);
 
@@ -70,7 +70,7 @@ export default function ModulesPage({ route, navigation }) {
       });
 
       if (result.canceled) return;
-      
+
       const file = result.assets[0];
       if (!file.name.endsWith('.js')) {
         Alert.alert('Error', 'Please select a .js file');
@@ -95,9 +95,9 @@ export default function ModulesPage({ route, navigation }) {
       setInstallingModule(module.id);
       await ModuleManager.installModule(module.moduleCode);
       await loadModules(); // Wait for modules to reload
-      
+
       Alert.alert('Success', 'Module installed successfully');
-      
+
       if (openAfterInstall) {
         // Find the installed module and open it
         const installedModules = ModuleManager.getAllModules();
@@ -150,9 +150,9 @@ export default function ModulesPage({ route, navigation }) {
       const testCode = SUBSONIC_MODULE_CODE + `\nconst module = arguments[0];\nmodule.configure('${subsonicServer}', '${subsonicUsername}', '${subsonicPassword}');\nreturn module.ping();`;
       const testFunc = new Function(testCode);
       const module = testFunc();
-      
+
       const isConnected = await module;
-      
+
       if (isConnected) {
         Alert.alert('Success!', 'Connection to Subsonic server successful');
       } else {
@@ -173,7 +173,7 @@ export default function ModulesPage({ route, navigation }) {
 
     try {
       setInstallingModule('subsonic');
-      
+
       // Inject configuration into the module code
       const configuredCode = SUBSONIC_MODULE_CODE.replace(
         "let SUBSONIC_SERVER_URL = '';",
@@ -193,7 +193,7 @@ export default function ModulesPage({ route, navigation }) {
       setSubsonicServer('');
       setSubsonicUsername('');
       setSubsonicPassword('');
-      
+
       Alert.alert('Success', 'Subsonic module installed successfully');
     } catch (err) {
       Alert.alert('Error', 'Failed to install module: ' + err.message);
@@ -254,7 +254,7 @@ export default function ModulesPage({ route, navigation }) {
 
       const streamUrl = response.streamUrl;
       const artwork = await getArtworkWithFallback(track);
-      
+
       // Prefer metadata from response if available (e.g. SpartDL updates duration)
       const responseTrack = response.track || {};
 
@@ -463,9 +463,9 @@ export default function ModulesPage({ route, navigation }) {
         <Text style={[styles.title, { color: theme.primaryText }]}>
           {currentView === 'list' ? 'Modules' : activeModule?.name || 'Module'}
         </Text>
-        <Pressable 
-          onPress={() => setShowHelpModal(true)} 
-          hitSlop={10} 
+        <Pressable
+          onPress={() => setShowHelpModal(true)}
+          hitSlop={10}
           style={styles.helpButton}
         >
           <Ionicons name="help-circle-outline" size={24} color={theme.primaryText} />
@@ -512,7 +512,7 @@ export default function ModulesPage({ route, navigation }) {
                 moduleCode: HIFI_MORGK_MODULE_CODE,
                 installed: false
               })}
-              
+
               {renderDefaultModuleCard({
                 id: 'tidal',
                 name: 'Tidal Music',
@@ -521,7 +521,7 @@ export default function ModulesPage({ route, navigation }) {
                 moduleCode: TIDAL_MODULE_CODE,
                 installed: false
               })}
-              
+
               {renderDefaultModuleCard({
                 id: 'ytdl',
                 name: 'YTDL (Spotify Search)',
@@ -530,7 +530,7 @@ export default function ModulesPage({ route, navigation }) {
                 moduleCode: YTDL_MODULE_CODE,
                 installed: false
               })}
-              
+
               {renderDefaultModuleCard({
                 id: 'spartdl',
                 name: 'SpartDL (Spotify Downloads)',
@@ -539,7 +539,7 @@ export default function ModulesPage({ route, navigation }) {
                 moduleCode: SPARTDL_MODULE_CODE,
                 installed: false
               })}
-              
+
               {renderDefaultModuleCard({
                 id: 'subsonic',
                 name: 'Subsonic Server',
@@ -594,7 +594,7 @@ export default function ModulesPage({ route, navigation }) {
 
             {/* Module Description */}
             <Text style={[styles.moduleDetailsDescription, { color: theme.secondaryText }]}>
-              Connect to external music sources and stream your favorite tracks directly within Prana.
+              Connect to external music sources and stream your favorite tracks directly within 8SPINE.
             </Text>
           </View>
 
@@ -707,7 +707,7 @@ export default function ModulesPage({ route, navigation }) {
             </Pressable>
           </View>
           <ScrollView style={styles.modalContent}>
-            
+
             {/* Server Connection Illustration */}
             <View style={styles.illustrationContainer}>
               <View style={styles.illustrationRow}>
@@ -729,11 +729,11 @@ export default function ModulesPage({ route, navigation }) {
               <Ionicons name="document-text-outline" size={28} color={theme.accent} />
               <Text style={[styles.selectFileText, { color: theme.accent }]}>Select a Module File</Text>
             </Pressable>
-            
+
             {/* Bundled Modules Section */}
             <View style={styles.bundledSection}>
               <Text style={[styles.bundledTitle, { color: theme.primaryText }]}>Morg's Bundled Modules</Text>
-              
+
               <Pressable
                 style={[styles.bundledModuleCard, { backgroundColor: theme.card, borderColor: theme.border }]}
                 onPress={() => handleInstallModule(HIFI_MORGK_MODULE_CODE)}
@@ -747,7 +747,7 @@ export default function ModulesPage({ route, navigation }) {
                 </View>
                 <Ionicons name="download-outline" size={24} color={theme.accent} />
               </Pressable>
-              
+
               <Pressable
                 style={[styles.bundledModuleCard, { backgroundColor: theme.card, borderColor: theme.border }]}
                 onPress={() => handleInstallModule(TIDAL_MODULE_CODE)}
@@ -790,7 +790,7 @@ export default function ModulesPage({ route, navigation }) {
                 <Ionicons name="download-outline" size={24} color={theme.accent} />
               </Pressable>
             </View>
-            
+
             <View style={{ height: 40 }} />
           </ScrollView>
         </View>
@@ -820,19 +820,19 @@ export default function ModulesPage({ route, navigation }) {
             <Text style={[styles.helpText, { color: theme.secondaryText, fontSize: 16, lineHeight: 24 }]}>
               By proceeding to install a custom module, you acknowledge and agree to the following terms:
               {"\n\n"}
-              <Text style={{ fontWeight: 'bold', color: theme.primaryText }}>1. Ownership and Legality:</Text> You confirm that any music or media accessed through this module belongs to you or that you have purchased it legally. Prana is a tool designed for personal media management and does not endorse or facilitate copyright infringement.
+              <Text style={{ fontWeight: 'bold', color: theme.primaryText }}>1. Ownership and Legality:</Text> You confirm that any music or media accessed through this module belongs to you or that you have purchased it legally. 8SPINE is a tool designed for personal media management and does not endorse or facilitate copyright infringement.
               {"\n\n"}
               <Text style={{ fontWeight: 'bold', color: theme.primaryText }}>2. Supporting Artists:</Text> Music is an art form that requires time, effort, and resources to create. We strongly advise and encourage all users to support artists by purchasing their music through official channels. Stealing music hurts the creators you love.
               {"\n\n"}
-              <Text style={{ fontWeight: 'bold', color: theme.primaryText }}>3. User Responsibility:</Text> The Prana team takes no responsibility for the misuse of this advanced feature. You, the user, are solely responsible for ensuring that your use of this app complies with all applicable laws and regulations regarding copyright and intellectual property.
+              <Text style={{ fontWeight: 'bold', color: theme.primaryText }}>3. User Responsibility:</Text> The 8SPINE team takes no responsibility for the misuse of this advanced feature. You, the user, are solely responsible for ensuring that your use of this app complies with all applicable laws and regulations regarding copyright and intellectual property.
               {"\n\n"}
-              <Text style={{ fontWeight: 'bold', color: theme.primaryText }}>4. Enforcement:</Text> Prana actively monitors and takes down any public modules distributed on the internet that violate these terms. We are committed to maintaining a legal and ethical ecosystem for all users ;)
+              <Text style={{ fontWeight: 'bold', color: theme.primaryText }}>4. Enforcement:</Text> 8SPINE actively monitors and takes down any public modules distributed on the internet that violate these terms. We are committed to maintaining a legal and ethical ecosystem for all users ;)
               {"\n\n"}
               <Text style={{ fontWeight: 'bold', fontSize: 20, color: theme.primaryText, textAlign: 'center' }}>You wouldn't steal a car ;)</Text>
               {"\n\n"}
               <Text style={{ fontWeight: 'bold', color: theme.primaryText, fontStyle: 'italic' }}>I, morgk the developer of this app hate pirating media and i will hate you if you pirate media!! i hate illegal stuff &gt;:( !!!!</Text>
               {"\n\n"}
-              By clicking "I Agree", you certify that you understand these terms and will use Prana's module engine responsibly and legally.
+              By clicking "I Agree", you certify that you understand these terms and will use 8SPINE's module engine responsibly and legally.
             </Text>
             <View style={{ height: 50 }} />
           </ScrollView>
@@ -856,7 +856,7 @@ export default function ModulesPage({ route, navigation }) {
           <ScrollView style={styles.modalContent}>
             <Text style={[styles.helpSectionTitle, { color: theme.primaryText }]}>How it works</Text>
             <Text style={[styles.helpText, { color: theme.secondaryText }]}>
-              We understand that advanced users often host their personal music collections in the cloud or have specific preferences for accessing their purchased albums on the go. Prana's module engine is designed to bridge this gap, allowing you to seamlessly connect to your external libraries. By installing custom JavaScript modules, you can stream and download your favorite tracks directly within the app, ensuring your music is always accessible, wherever you are.
+              We understand that advanced users often host their personal music collections in the cloud or have specific preferences for accessing their purchased albums on the go. 8SPINE's module engine is designed to bridge this gap, allowing you to seamlessly connect to your external libraries. By installing custom JavaScript modules, you can stream and download your favorite tracks directly within the app, ensuring your music is always accessible, wherever you are.
             </Text>
 
             <Text style={[styles.helpSectionTitle, { color: theme.primaryText }]}>Creating a Module</Text>
@@ -866,7 +866,7 @@ export default function ModulesPage({ route, navigation }) {
 
             <View style={[styles.codeBlock, { backgroundColor: theme.inputBackground }]}>
               <Text style={[styles.codeText, { color: theme.primaryText }]}>
-{`return {
+                {`return {
   id: "my-module",
   name: "My Service",
   version: "1.0.0",
@@ -892,7 +892,7 @@ export default function ModulesPage({ route, navigation }) {
               3. Alternatively, you can paste the module code directly into the text area.{"\n"}
               4. Tap "Install" to add the module to your library.
             </Text>
-            
+
             <View style={{ height: 50 }} />
           </ScrollView>
         </View>
@@ -913,7 +913,7 @@ export default function ModulesPage({ route, navigation }) {
             <Text style={[styles.modalTitle, { color: theme.primaryText, fontSize: 18 }]}>Configure Subsonic</Text>
             <View style={{ width: 60 }} />
           </View>
-          
+
           <ScrollView style={styles.modalContent}>
             {/* Server Icon */}
             <View style={styles.illustrationContainer}>
@@ -932,8 +932,8 @@ export default function ModulesPage({ route, navigation }) {
                 Server URL
               </Text>
               <TextInput
-                style={[styles.codeInput, { 
-                  backgroundColor: theme.inputBackground, 
+                style={[styles.codeInput, {
+                  backgroundColor: theme.inputBackground,
                   color: theme.primaryText,
                   height: 48,
                   fontFamily: undefined
@@ -954,8 +954,8 @@ export default function ModulesPage({ route, navigation }) {
                 Username
               </Text>
               <TextInput
-                style={[styles.codeInput, { 
-                  backgroundColor: theme.inputBackground, 
+                style={[styles.codeInput, {
+                  backgroundColor: theme.inputBackground,
                   color: theme.primaryText,
                   height: 48,
                   fontFamily: undefined
@@ -975,8 +975,8 @@ export default function ModulesPage({ route, navigation }) {
                 Password
               </Text>
               <TextInput
-                style={[styles.codeInput, { 
-                  backgroundColor: theme.inputBackground, 
+                style={[styles.codeInput, {
+                  backgroundColor: theme.inputBackground,
                   color: theme.primaryText,
                   height: 48,
                   fontFamily: undefined
@@ -993,7 +993,7 @@ export default function ModulesPage({ route, navigation }) {
 
             {/* Test Connection Button */}
             <Pressable
-              style={[styles.modalInstallButton, { 
+              style={[styles.modalInstallButton, {
                 backgroundColor: theme.border,
                 marginBottom: 12
               }]}
@@ -1087,8 +1087,8 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 },
   emptyText: { fontSize: 16 },
   quickInstallButton: {
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-      padding: 12, borderRadius: 12, borderWidth: 1, gap: 8, marginTop: 8
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    padding: 12, borderRadius: 12, borderWidth: 1, gap: 8, marginTop: 8
   },
   quickInstallText: { fontWeight: '600' },
   illustrationContainer: {

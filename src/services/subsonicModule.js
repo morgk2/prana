@@ -11,7 +11,7 @@ let SUBSONIC_PASSWORD = '';
 
 // API version
 const API_VERSION = '1.16.1';
-const CLIENT_NAME = 'Prana';
+const CLIENT_NAME = '8SPINE';
 
 /**
  * MD5 hash function (minimal implementation)
