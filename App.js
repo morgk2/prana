@@ -33,6 +33,8 @@ import * as Notifications from 'expo-notifications';
 import { clearArtworkCacheManually, getArtworkWithFallback } from './src/utils/artworkFallback';
 import { clearCache as clearTidalCache } from './src/utils/tidalCache';
 import { getPlayableTrack } from './src/utils/tidalStreamHelper';
+import { setupPlayer } from './src/services/SetupService';
+
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -1162,9 +1164,11 @@ function AppContent() {
   useEffect(() => {
     const initModules = async () => {
       await ModuleManager.init();
+      await setupPlayer();
     };
     initModules();
   }, []);
+
 
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);

@@ -17,24 +17,21 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-
-if (Platform.OS === 'android') {
-    if (UIManager.setLayoutAnimationEnabledExperimental) {
-        UIManager.setLayoutAnimationEnabledExperimental(true);
-    }
-}
-
-// FIXED: Imported interruption modes for proper background audio config
-import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import MediaControl, { Command, PlaybackState } from 'expo-media-control';
+import TrackPlayer, { useProgress, usePlaybackState, State, Event, RepeatMode, Capability } from 'react-native-track-player';
 import QueueSheet from './QueueSheet';
 import LyricsView from './LyricsView';
 import { preloadLyrics, preloadQueueLyrics } from '../utils/lyricsCache';
 import { getArtworkWithFallback } from '../utils/artworkFallback';
 import { getFreshTidalStream, getPlayableTrack, shouldStreamFromTidal } from '../utils/tidalStreamHelper';
 import { useDownload } from '../context/DownloadContext';
+
+if (Platform.OS === 'android') {
+    if (UIManager.setLayoutAnimationEnabledExperimental) {
+        UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+}
 
 function formatTime(seconds) {
     if (!seconds || isNaN(seconds)) return '0:00';
@@ -43,7 +40,6 @@ function formatTime(seconds) {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
-// Simple string hash -> int for deterministic per-song colors
 function hashString(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i += 1) {
@@ -195,12 +191,11 @@ function AnimatedControl({ onPress, children, style, disabled }) {
     );
 }
 
-
 export default function SongPlayerV2({ isVisible = true, track, onClose, onKill, onOpen, theme, setPlayerControls, onArtistPress, queue = [], queueIndex = 0, onTrackChange, onQueueReorder, toggleFavorite, isFavorite, shouldPlay = true, zIndex = 1000, shouldHide = false, playerColorMode = 'dark' }) {
     const { height: screenHeight, width: screenWidth } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const { recentDownloads } = useDownload();
-    // Set player background colors based on playerColorMode
+
     const colors = playerColorMode === 'light' ? {
         primary: '#FFFFFF',
         secondary: '#F5F5F5',
@@ -210,64 +205,63 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         secondary: '#202020',
         detail: '#ffffff',
     };
-    const [sound, setSound] = useState(null);
-    const [playback, setPlayback] = useState({
-        positionMillis: 0,
-        durationMillis: 0,
-        isPlaying: false,
-    });
 
-    // FIXED: Configure Audio Session for Background Music
-    useEffect(() => {
-        const configureAudio = async () => {
-            try {
-                await Audio.setAudioModeAsync({
-                    allowsRecordingIOS: false,
-                    staysActiveInBackground: true, // Needed for background play
-                    interruptionModeIOS: InterruptionModeIOS.DoNotMix, // Needed to show Next/Prev instead of Seek 15s
-                    playsInSilentModeIOS: true,
-                    shouldDuckAndroid: true,
-                    interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
-                    playThroughEarpieceAndroid: false
-                });
-            } catch (e) {
-                console.warn('Error configuring audio session:', e);
-            }
-        };
-        configureAudio();
-    }, []);
+    const progress = useProgress();
+    const playbackState = usePlaybackState();
+    const isPlaying = playbackState.state === State.Playing || playbackState.state === State.Buffering;
 
-    // Animation for hiding the player (slide down)
+    // Animations
     const hideAnim = useRef(new Animated.Value(shouldHide ? 1 : 0)).current;
-    // Animation for dismissing the mini player completely
     const dismissAnim = useRef(new Animated.Value(0)).current;
-    useEffect(() => {
-        Animated.timing(hideAnim, {
-            toValue: shouldHide ? 1 : 0,
-            duration: 300,
-            useNativeDriver: false, // Changed to false to support layout props on the same view
-        }).start();
-    }, [shouldHide]);
-    // ... existing state ...
+    const slideAnim = useRef(new Animated.Value(0)).current;
+    const lyricsAnim = useRef(new Animated.Value(0)).current;
+    const playPauseScale = useRef(new Animated.Value(1)).current;
+    const nextTranslate = useRef(new Animated.Value(0)).current;
+    const prevTranslate = useRef(new Animated.Value(0)).current;
+    const expandAnim = useRef(new Animated.Value(isVisible ? 1 : 0)).current;
+
     const [isScrubbing, setIsScrubbing] = useState(false);
     const isScrubbingRef = useRef(false);
-    const [repeatMode, setRepeatMode] = useState(0); // 0: Off, 1: Queue, 2: Song
+    const [repeatMode, setRepeatMode] = useState(0);
     const [localArtwork, setLocalArtwork] = useState(null);
     const [isResolvingTidal, setIsResolvingTidal] = useState(false);
-    const [modalAnimationType, setModalAnimationType] = useState('slide');
-    // Ref to prevent unnecessary artwork refetches if track props change shallowly
+    const [queueVisible, setQueueVisible] = useState(false);
+    const [isShuffleEnabled, setIsShuffleEnabled] = useState(false);
+    const [showLyrics, setShowLyrics] = useState(false);
+    const [isLyricsRendered, setIsLyricsRendered] = useState(false);
+
     const lastTrackSignature = useRef('');
     const resolvedDownloadUri = React.useMemo(() => {
         if (!track) return null;
         const tid = track.id || track.name;
         return recentDownloads?.[tid] || recentDownloads?.[track.name];
     }, [recentDownloads, track?.id, track?.name]);
-    // Fetch artwork if missing
+
+    // Refs
+    const queueRef = useRef(queue);
+    const currentIndexRef = useRef(queueIndex);
+    const repeatModeRef = useRef(repeatMode);
+    const onTrackChangeRef = useRef(onTrackChange);
+    const isVisibleRef = useRef(isVisible);
+    const onCloseRef = useRef(onClose);
+    const onKillRef = useRef(onKill);
+    const queueVisibleRef = useRef(queueVisible);
+
+    useEffect(() => {
+        queueRef.current = queue;
+        currentIndexRef.current = queueIndex;
+        repeatModeRef.current = repeatMode;
+        onTrackChangeRef.current = onTrackChange;
+        isVisibleRef.current = isVisible;
+        onCloseRef.current = onClose;
+        onKillRef.current = onKill;
+        queueVisibleRef.current = queueVisible;
+    }, [queue, queueIndex, repeatMode, onTrackChange, isVisible, onClose, onKill, queueVisible]);
+
+    // Artwork
     useEffect(() => {
         const currentArtistName = track?.artist?.name || track?.artist || '';
         const currentSignature = `${track?.id}|${track?.name}|${currentArtistName}`;
-
-        // Only run if the track actually changed (ignoring object ref changes or artist object/string swaps)
         if (lastTrackSignature.current === currentSignature) return;
         lastTrackSignature.current = currentSignature;
 
@@ -289,43 +283,211 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         }
     }, [track?.id, track?.name, track?.artist]);
 
-    // Refs for accessing latest state in callbacks
-    const queueRef = useRef(queue);
-    const currentIndexRef = useRef(queueIndex);
-    const repeatModeRef = useRef(repeatMode);
-    const onTrackChangeRef = useRef(onTrackChange);
+    // Load Track
     useEffect(() => {
-        queueRef.current = queue;
-        currentIndexRef.current = queueIndex;
-        repeatModeRef.current = repeatMode;
-        onTrackChangeRef.current = onTrackChange;
-    }, [queue, queueIndex, repeatMode, onTrackChange]);
-    const slideAnim = useRef(new Animated.Value(0)).current;
-    const [queueVisible, setQueueVisible] = useState(false);
-    const [isShuffleEnabled, setIsShuffleEnabled] = useState(false);
-    const lyricsAnim = useRef(new Animated.Value(0)).current;
-    const [showLyrics, setShowLyrics] = useState(false);
-    const [isLyricsRendered, setIsLyricsRendered] = useState(false);
-    // Button Animations
-    const playPauseScale = useRef(new Animated.Value(1)).current;
-    const nextTranslate = useRef(new Animated.Value(0)).current;
-    const prevTranslate = useRef(new Animated.Value(0)).current;
+        let cancelled = false;
+
+        async function load() {
+            const downloadedUri = resolvedDownloadUri;
+            let currentUri = downloadedUri || track?.uri || track?.previewUrl || null;
+            let workingTidalId = track?.tidalId;
+
+            if (shouldStreamFromTidal(track, true)) {
+                try {
+                    setIsResolvingTidal(true);
+                    const playable = await getPlayableTrack(track, true);
+                    if (playable) {
+                        if (playable.uri) {
+                            currentUri = playable.uri;
+                        }
+                        if (playable.tidalId) {
+                            workingTidalId = playable.tidalId;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[SongPlayer] Failed to resolve track:', e);
+                } finally {
+                    if (!cancelled) setIsResolvingTidal(false);
+                }
+            }
+
+            if (cancelled) return;
+
+            if (currentUri) {
+                try {
+                    // Hack: Append #.mp3 to hint the file type to iOS AVPlayer if it doesn't have an extension
+                    const uriWithHint = (Platform.OS === 'ios' && !currentUri.match(/\.[a-zA-Z0-9]{3,4}$/) && !currentUri.includes('#'))
+                        ? `${currentUri}#.mp3`
+                        : currentUri;
+                    const isLocal = currentUri.startsWith('file://');
+                    const finalUri = isLocal ? decodeURIComponent(uriWithHint) : uriWithHint;
+
+                    await TrackPlayer.reset();
+                    await TrackPlayer.add({
+                        id: track.id || track.name || 'unknown',
+                        url: finalUri,
+                        title: track.name,
+                        artist: track.artist?.name || track.artist || 'Unknown Artist',
+                        artwork: localArtwork ? (localArtwork[0]?.['#text'] || localArtwork) : (pickImageUrl(track.image) || undefined),
+                        duration: track.duration ? Number(track.duration) : undefined,
+                    });
+
+                    if (shouldPlay) {
+                        await TrackPlayer.play();
+                    }
+                } catch (e) {
+                    console.warn('Error loading track into TrackPlayer', e);
+                }
+            }
+        }
+
+        load();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [track?.id, track?.uri, track?.name, resolvedDownloadUri]);
+
+    // Track End Handling & Remote Events
+    useEffect(() => {
+        const subs = [
+            TrackPlayer.addEventListener(Event.PlaybackQueueEnded, async (event) => {
+                const mode = repeatModeRef.current;
+                const q = queueRef.current;
+                const idx = currentIndexRef.current;
+                const changeTrack = onTrackChangeRef.current;
+
+                if (mode === 2) { // Repeat Song
+                    await TrackPlayer.seekTo(0);
+                    await TrackPlayer.play();
+                } else if (mode === 1) { // Repeat Queue
+                    if (q && q.length > 0 && changeTrack) {
+                        const nextIndex = (idx + 1) % q.length;
+                        changeTrack(q[nextIndex], nextIndex);
+                    }
+                } else {
+                    if (q && q.length > 0 && changeTrack && idx < q.length - 1) {
+                        const nextIndex = idx + 1;
+                        changeTrack(q[nextIndex], nextIndex);
+                    }
+                }
+            }),
+            TrackPlayer.addEventListener(Event.RemotePlay, () => TrackPlayer.play()),
+            TrackPlayer.addEventListener(Event.RemotePause, () => TrackPlayer.pause()),
+            TrackPlayer.addEventListener(Event.RemoteNext, () => {
+                const q = queueRef.current;
+                const idx = currentIndexRef.current;
+                const changeTrack = onTrackChangeRef.current;
+                if (q && q.length > 0 && changeTrack) {
+                    const nextIndex = idx + 1;
+                    if (nextIndex < q.length) {
+                        changeTrack(q[nextIndex], nextIndex);
+                    }
+                }
+            }),
+            TrackPlayer.addEventListener(Event.RemotePrevious, () => {
+                const q = queueRef.current;
+                const idx = currentIndexRef.current;
+                const changeTrack = onTrackChangeRef.current;
+                if (q && q.length > 0 && changeTrack) {
+                    const prevIndex = idx - 1;
+                    if (prevIndex >= 0) {
+                        changeTrack(q[prevIndex], prevIndex);
+                    }
+                }
+            }),
+            TrackPlayer.addEventListener(Event.RemoteSeek, (event) => TrackPlayer.seekTo(event.position)),
+        ];
+
+        return () => {
+            subs.forEach(sub => sub.remove());
+        };
+    }, []);
+
+    // Controls
+    const togglePlay = useCallback(async () => {
+        if (isPlaying) {
+            await TrackPlayer.pause();
+        } else {
+            await TrackPlayer.play();
+        }
+    }, [isPlaying]);
+
+    const skipNext = useCallback(() => {
+        if (!onTrackChange || !queue || queue.length === 0) return;
+        const nextIndex = queueIndex + 1;
+        if (nextIndex < queue.length) {
+            onTrackChange(queue[nextIndex], nextIndex);
+        }
+    }, [onTrackChange, queue, queueIndex]);
+
+    const skipPrevious = useCallback(() => {
+        if (!onTrackChange || !queue || queue.length === 0) return;
+        const prevIndex = queueIndex - 1;
+        if (prevIndex >= 0) {
+            onTrackChange(queue[prevIndex], prevIndex);
+        }
+    }, [onTrackChange, queue, queueIndex]);
+
+    const onSeekStart = () => {
+        setScrubbing(true);
+    };
+
+    const onSeekUpdate = (val) => {
+        // Optional: Update local state for smooth slider
+    };
+
+    const onSeekComplete = async (val) => {
+        try {
+            await TrackPlayer.seekTo(val);
+            setIsScrubbing(false);
+        } catch (e) {
+            console.warn('Error seeking', e);
+        }
+    };
+
+    const toggleLyrics = () => {
+        LayoutAnimation.configureNext({
+            duration: 300,
+            update: {
+                type: LayoutAnimation.Types.easeInEaseOut,
+            },
+        });
+        setShowLyrics(!showLyrics);
+    };
+
+    const toggleShuffle = () => {
+        const newShuffleState = !isShuffleEnabled;
+        setIsShuffleEnabled(newShuffleState);
+        if (newShuffleState && queue.length > 1) {
+            const currentTrack = queue[queueIndex];
+            const otherTracks = queue.filter((_, idx) => idx !== queueIndex);
+            for (let i = otherTracks.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [otherTracks[i], otherTracks[j]] = [otherTracks[j], otherTracks[i]];
+            }
+            const shuffledQueue = [currentTrack, ...otherTracks];
+            if (onQueueReorder) {
+                onQueueReorder(shuffledQueue, 0);
+            }
+        }
+    };
+
+    // Animations Effects
+    useEffect(() => {
+        Animated.timing(hideAnim, {
+            toValue: shouldHide ? 1 : 0,
+            duration: 300,
+            useNativeDriver: false,
+        }).start();
+    }, [shouldHide]);
 
     useEffect(() => {
-        // Pulse animation on play/pause state change
         Animated.sequence([
             Animated.timing(playPauseScale, { toValue: 0.85, duration: 100, useNativeDriver: true }),
             Animated.spring(playPauseScale, { toValue: 1, friction: 5, useNativeDriver: true })
         ]).start();
     }, [isPlaying]);
-    const animateSkip = (direction) => {
-        const anim = direction === 'next' ? nextTranslate : prevTranslate;
-        const value = direction === 'next' ? 15 : -15;
-        Animated.sequence([
-            Animated.timing(anim, { toValue: value, duration: 150, useNativeDriver: true }),
-            Animated.spring(anim, { toValue: 0, friction: 6, useNativeDriver: true })
-        ]).start();
-    };
 
     useEffect(() => {
         if (showLyrics) {
@@ -350,27 +512,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         }
     }, [showLyrics]);
 
-    const expandAnim = useRef(new Animated.Value(isVisible ? 1 : 0)).current;
-    const isVisibleRef = useRef(isVisible);
-    const onCloseRef = useRef(onClose);
-    const onKillRef = useRef(onKill);
-    const queueVisibleRef = useRef(queueVisible);
-    useEffect(() => {
-        isVisibleRef.current = isVisible;
-        onCloseRef.current = onClose;
-        onKillRef.current = onKill;
-    }, [isVisible, onClose, onKill]);
-    useEffect(() => {
-        queueVisibleRef.current = queueVisible;
-    }, [queueVisible]);
-    useEffect(() => {
-        if (!isVisible) {
-            const timer = setTimeout(() => {
-                setShowLyrics(false);
-            }, 500);
-            return () => clearTimeout(timer);
-        }
-    }, [isVisible]);
     useEffect(() => {
         Animated.spring(expandAnim, {
             toValue: isVisible ? 1 : 0,
@@ -380,6 +521,14 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             useNativeDriver: false,
         }).start();
     }, [isVisible]);
+
+    useEffect(() => {
+        if (setPlayerControls) {
+            setPlayerControls({ togglePlay, isPlaying });
+        }
+    }, [setPlayerControls, togglePlay, isPlaying]);
+
+    // PanResponder
     const panResponder = useRef(
         PanResponder.create({
             onStartShouldSetPanResponder: () => isVisibleRef.current,
@@ -389,12 +538,9 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                 if (queueVisibleRef.current) return false;
                 const isDownwardSwipe = gestureState.dy > 10;
                 const isVerticalDominant = Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
-
-                // If lyrics are showing, only allow swipe down from very top (header)
                 if (showLyrics) {
                     return isDownwardSwipe && evt.nativeEvent.pageY < 100;
                 }
-
                 return isDownwardSwipe && isVerticalDominant;
             },
             onPanResponderGrant: () => {
@@ -422,12 +568,12 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             },
         })
     ).current;
-    // PanResponder for mini player dismiss (swipe down to kill)
+
     const miniPlayerPanResponder = useRef(
         PanResponder.create({
-            onStartShouldSetPanResponder: () => !isVisibleRef.current, // Only active when minimized
+            onStartShouldSetPanResponder: () => !isVisibleRef.current,
             onMoveShouldSetPanResponder: (evt, gestureState) => {
-                if (isVisibleRef.current) return false; // Not active when expanded
+                if (isVisibleRef.current) return false;
                 if (isScrubbingRef.current) return false;
                 const isDownwardSwipe = gestureState.dy > 5;
                 const isVerticalDominant = Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
@@ -439,28 +585,23 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             },
             onPanResponderMove: (evt, gestureState) => {
                 if (gestureState.dy > 0) {
-                    // Map dy to 0-1 range for dismiss animation
                     const progress = Math.min(gestureState.dy / 150, 1);
                     dismissAnim.setValue(progress);
                 }
             },
             onPanResponderRelease: (evt, gestureState) => {
                 dismissAnim.flattenOffset();
-                // If swiped down more than 80px or fast velocity, kill the player
                 if (gestureState.dy > 80 || gestureState.vy > 0.8) {
-                    // Animate to fully dismissed
                     Animated.timing(dismissAnim, {
                         toValue: 1,
                         duration: 200,
                         useNativeDriver: false,
                     }).start(() => {
-                        // Kill the player
                         if (onKillRef.current) {
                             onKillRef.current();
                         }
                     });
                 } else {
-                    // Snap back
                     Animated.spring(dismissAnim, {
                         toValue: 0,
                         friction: 14,
@@ -471,527 +612,33 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             },
         })
     ).current;
-    const setScrubbing = (value) => {
-        isScrubbingRef.current = value;
-        setIsScrubbing(value);
-    };
-    const toggleLyrics = () => {
-        LayoutAnimation.configureNext({
-            duration: 300,
-            update: {
-                type: LayoutAnimation.Types.easeInEaseOut,
-            },
-        });
-        setShowLyrics(!showLyrics);
-    };
-
-    const toggleShuffle = () => {
-        const newShuffleState = !isShuffleEnabled;
-        setIsShuffleEnabled(newShuffleState);
-        if (newShuffleState && queue.length > 1) {
-            const currentTrack = queue[queueIndex];
-            const otherTracks = queue.filter((_, idx) => idx !== queueIndex);
-            for (let i = otherTracks.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [otherTracks[i], otherTracks[j]] = [otherTracks[j], otherTracks[i]];
-            }
-            const shuffledQueue = [currentTrack, ...otherTracks];
-            if (onQueueReorder) {
-                onQueueReorder(shuffledQueue, 0);
-            }
-        }
-    };
-    useEffect(() => {
-        if (!queue || queue.length === 0) return;
-        const prefetch = async () => {
-            const PREFETCH_COUNT = 3;
-            const startIndex = queueIndex + 1;
-            const endIndex = Math.min(startIndex + PREFETCH_COUNT, queue.length);
-            for (let i = startIndex; i < endIndex; i++) {
-                const nextTrack = queue[i];
-                if (shouldStreamFromTidal(nextTrack, true)) {
-                    if (!nextTrack.uri || nextTrack.uri.startsWith('http')) {
-                        await getPlayableTrack(nextTrack, true);
-                    }
-                }
-            }
-        };
-        const timer = setTimeout(prefetch, 1000);
-        return () => clearTimeout(timer);
-    }, [queue, queueIndex]);
-    const [activeUri, setActiveUri] = useState(null);
-
-    useEffect(() => {
-        setActiveUri(track?.uri ?? track?.previewUrl ?? null);
-    }, [track?.uri, track?.previewUrl, track?.id]);
-    useEffect(() => {
-        let soundObj = null;
-        let cancelled = false;
-
-        async function load() {
-            // Check for downloaded file first
-            const downloadedUri = resolvedDownloadUri;
-
-            let currentUri = downloadedUri || track?.uri || track?.previewUrl || null;
-            let workingTidalId = track?.tidalId;
-
-            if (downloadedUri) {
-                console.log('[SongPlayer] Playing from download:', downloadedUri);
-            }
-
-            // Always get playable track info if we should stream from Tidal
-            // This ensures we have the correct numeric tidalId and freshest cached URI
-            if (shouldStreamFromTidal(track, true)) {
-                try {
-                    setIsResolvingTidal(true);
-                    const playable = await getPlayableTrack(track, true);
-                    if (playable) {
-                        // Use cached/resolved URI if available (it might be fresher than track.uri)
-                        if (playable.uri) {
-                            currentUri = playable.uri;
-                            if (!cancelled) setActiveUri(currentUri);
-                        }
-                        // Always update tidalId to ensure we have the numeric ID for potential refreshes
-                        if (playable.tidalId) {
-                            workingTidalId = playable.tidalId;
-                        }
-                    }
-                } catch (e) {
-                    console.warn('[SongPlayer] Failed to resolve track:', e);
-                } finally {
-                    if (!cancelled) setIsResolvingTidal(false);
-                }
-            }
-
-            const loadSound = async (uri) => {
-                try {
-                    // Hack: Append #.mp3 to hint the file type to iOS AVPlayer if it doesn't have an extension
-                    // This is safe because fragments are not sent to the server, so it won't break the signature
-                    const uriWithHint = (Platform.OS === 'ios' && !uri.match(/\.[a-zA-Z0-9]{3,4}$/) && !uri.includes('#'))
-                        ? `${uri}#.mp3`
-                        : uri;
-                    const isLocal = uri.startsWith('file://');
-
-                    // For local files, try decoding the URI to handle spaces correctly
-                    // expo-av on iOS sometimes struggles with encoded file:// URIs
-                    const finalUri = isLocal ? decodeURIComponent(uriWithHint) : uriWithHint;
-
-                    if (isLocal) {
-                        console.log('[SongPlayer] Loading local file:', finalUri);
-                    }
-
-                    const source = { uri: finalUri };
-                    if (!isLocal) {
-                        source.headers = {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                        };
-                    }
-
-                    const { sound } = await Audio.Sound.createAsync(
-                        source,
-                        { shouldPlay: shouldPlay },
-                        (status) => {
-                            if (!status.isLoaded) return;
-
-                            if (status.didJustFinish) {
-                                const mode = repeatModeRef.current;
-                                const q = queueRef.current;
-                                const idx = currentIndexRef.current;
-                                const changeTrack = onTrackChangeRef.current;
-
-                                if (mode === 2) {
-                                    sound.replayAsync();
-                                } else if (mode === 1) {
-                                    if (q && q.length > 0 && changeTrack) {
-                                        const nextIndex = (idx + 1) % q.length;
-                                        changeTrack(q[nextIndex], nextIndex);
-                                    }
-                                } else {
-                                    if (q && q.length > 0 && changeTrack && idx < q.length - 1) {
-                                        const nextIndex = idx + 1;
-                                        changeTrack(q[nextIndex], nextIndex);
-                                    }
-                                }
-                            }
-
-                            setPlayback((prev) => ({
-                                positionMillis: isScrubbingRef.current ? prev.positionMillis : (status.positionMillis ?? 0),
-                                durationMillis: status.durationMillis ?? 0,
-                                isPlaying: status.isPlaying ?? false,
-                            }));
-                        },
-                    );
-                    return sound;
-                } catch (e) {
-                    throw e;
-                }
-            };
-            try {
-                if (currentUri) {
-                    soundObj = await loadSound(currentUri);
-                    if (cancelled) {
-                        await soundObj.unloadAsync().catch(() => { });
-                        return;
-                    }
-                    setSound(soundObj);
-                } else if (workingTidalId && track?.source === 'tidal') {
-                    throw new Error('No URI for Tidal track');
-                }
-            } catch (initialError) {
-                console.warn('[SongPlayer] Initial load failed:', initialError.message);
-                if (workingTidalId && (track?.source === 'tidal' || shouldStreamFromTidal(track, true))) {
-                    if (!cancelled) setIsResolvingTidal(true);
-                    try {
-                        const freshTrack = await getFreshTidalStream(workingTidalId);
-                        if (freshTrack && freshTrack.uri) {
-                            currentUri = freshTrack.uri;
-                            if (!cancelled) setActiveUri(currentUri);
-                            if (cancelled) return;
-                            soundObj = await loadSound(currentUri);
-                            if (cancelled) {
-                                await soundObj.unloadAsync().catch(() => { });
-                                return;
-                            }
-                            setSound(soundObj);
-                        }
-                    } catch (retryError) {
-                        console.warn('[SongPlayer] Retry with ID failed:', retryError);
-                    } finally {
-                        if (!cancelled) setIsResolvingTidal(false);
-                    }
-                }
-
-                // If we still don't have a sound object and should stream from TIDAL, try name-based search
-                if (!soundObj && !currentUri && shouldStreamFromTidal(track, true)) {
-                    if (!cancelled) setIsResolvingTidal(true);
-                    try {
-                        console.log('[SongPlayer] Falling back to name-based TIDAL search for:', track.name);
-                        const playable = await getPlayableTrack(track, true);
-                        if (playable && playable.uri) {
-                            currentUri = playable.uri;
-                            if (!cancelled) setActiveUri(currentUri);
-                            if (cancelled) return;
-                            soundObj = await loadSound(currentUri);
-                            if (cancelled) {
-                                await soundObj.unloadAsync().catch(() => { });
-                                return;
-                            }
-                            setSound(soundObj);
-                        }
-                    } catch (nameSearchError) {
-                        console.warn('[SongPlayer] Name-based search also failed:', nameSearchError);
-                    } finally {
-                        if (!cancelled) setIsResolvingTidal(false);
-                    }
-                }
-            }
-        }
-
-        setSound(null);
-        load();
-
-        return () => {
-            cancelled = true;
-            if (soundObj) {
-                soundObj.unloadAsync().catch(() => { });
-            }
-            setSound(null);
-            setPlayback({ positionMillis: 0, durationMillis: 0, isPlaying: false });
-        };
-    }, [track?.uri, track?.previewUrl, track?.id, track?.name, resolvedDownloadUri]);
-    useEffect(() => {
-        if (track) {
-            preloadLyrics(track);
-        }
-        if (queue && queue.length > 0) {
-            preloadQueueLyrics(queue, queueIndex, 3);
-        }
-    }, [track, queue, queueIndex]);
-    const positionSec = (playback.positionMillis || 0) / 1000;
-    const durationSec = (playback.durationMillis || 0) / 1000;
-    const isPlaying = playback.isPlaying;
-    const togglePlay = useCallback(async () => {
-        if (!sound) return;
-        try {
-            if (isPlaying) {
-                await sound.pauseAsync();
-            } else {
-                await sound.playAsync();
-            }
-        } catch (e) {
-            console.warn('Error toggling playback', e);
-        }
-    }, [sound, isPlaying]);
-    const skipNext = useCallback(() => {
-        animateSkip('next');
-        if (!onTrackChange || !queue || queue.length === 0) return;
-        const nextIndex = queueIndex + 1;
-        if (nextIndex < queue.length) {
-            Animated.timing(slideAnim, { toValue: -1, duration: 300, useNativeDriver: true }).start(() => {
-                onTrackChange(queue[nextIndex], nextIndex);
-                slideAnim.setValue(1);
-                Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
-            });
-        }
-    }, [onTrackChange, queue, queueIndex, slideAnim]);
-    const skipPrevious = useCallback(() => {
-        animateSkip('prev');
-        if (!onTrackChange || !queue || queue.length === 0) return;
-        const prevIndex = queueIndex - 1;
-        if (prevIndex >= 0) {
-            Animated.timing(slideAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start(() => {
-                onTrackChange(queue[prevIndex], prevIndex);
-                slideAnim.setValue(-1);
-                Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
-            });
-        }
-    }, [onTrackChange, queue, queueIndex, slideAnim]);
-    const canSkipNext = queue && queue.length > 0 && queueIndex < queue.length - 1;
-    const canSkipPrevious = queue && queue.length > 0 && queueIndex > 0;
-    useEffect(() => {
-        if (setPlayerControls) {
-            setPlayerControls({ togglePlay, isPlaying });
-        }
-    }, [setPlayerControls, togglePlay, isPlaying]);
-    // --- Expo Media Control Integration ---
-
-    // Refs for media control callbacks
-    const togglePlayRef = useRef(togglePlay);
-    const skipNextRef = useRef(skipNext);
-    const skipPreviousRef = useRef(skipPrevious);
-    const onSeekCompleteRef = useRef(onSeekComplete);
-    useEffect(() => {
-        togglePlayRef.current = togglePlay;
-        skipNextRef.current = skipNext;
-        skipPreviousRef.current = skipPrevious;
-        onSeekCompleteRef.current = onSeekComplete;
-    }, [togglePlay, skipNext, skipPrevious, onSeekComplete]);
-    // 1. Enable/Disable Controls & Event Listeners
-    useEffect(() => {
-        let listener = null;
-        let isCleanedUp = false;
-
-        const setupMediaControls = async () => {
-            // Wait a bit to ensure audio session is fully configured
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            if (isCleanedUp) return;
-
-            try {
-                await MediaControl.enableMediaControls({
-                    play: true,
-                    pause: true,
-                    nextTrack: true,
-                    previousTrack: true,
-                    seek: true,
-                    skipForward: false,
-                    skipBackward: false,
-                });
-                console.log('Media controls enabled successfully');
-            } catch (e) {
-                console.warn('Failed to enable media controls:', e);
-                // Don't throw - allow player to work without media controls
-                return;
-            }
-
-            if (isCleanedUp) return;
-            try {
-                listener = MediaControl.addListener((event) => {
-                    try {
-                        switch (event.command) {
-                            case Command.PLAY:
-                                togglePlayRef.current?.();
-                                break;
-                            case Command.PAUSE:
-                                togglePlayRef.current?.();
-                                break;
-                            case Command.NEXT_TRACK:
-                                skipNextRef.current?.();
-                                break;
-                            case Command.PREVIOUS_TRACK:
-                                skipPreviousRef.current?.();
-                                break;
-                            case Command.SEEK:
-                                if (event.data?.position !== undefined) {
-                                    onSeekCompleteRef.current?.(event.data.position);
-                                }
-                                break;
-                            default:
-                                break;
-                        }
-                    } catch (error) {
-                        console.warn('Error handling media control command:', error);
-                    }
-                });
-            } catch (error) {
-                console.warn('Error setting up media control listener:', error);
-            }
-        };
-
-        setupMediaControls();
-        return () => {
-            isCleanedUp = true;
-            try {
-                if (listener) {
-                    listener.remove();
-                }
-                MediaControl.disableMediaControls();
-                console.log('Media controls cleaned up');
-            } catch (error) {
-                console.warn('Error cleaning up media controls:', error);
-            }
-        };
-    }, []);
-    // 3. Update Metadata
-    useEffect(() => {
-        if (!track) return;
-
-        // FIXED: Do not update metadata if duration is 0, this breaks the lockscreen
-        if (!durationSec || durationSec === 0) return;
-
-        const updateMetadata = async () => {
-            try {
-                const artistName = track.artist?.name ?? track.artist ?? 'Unknown Artist';
-                const title = track.name ?? 'Unknown Title';
-
-                // Find best artwork
-                const hasValidImage = track.image && Array.isArray(track.image) && track.image.some(img => img['#text'] && (img['#text'].startsWith('http') || img['#text'].startsWith('file:')));
-                const images = localArtwork || (hasValidImage ? track.image : (track.source === 'tidal' ? null : track.image));
-                const artworkUrl = images ? (pickImageUrl(images, 'extralarge') || pickImageUrl(images, 'large')) : null;
-
-                await MediaControl.updateMetadata({
-                    title: title,
-                    artist: artistName,
-                    album: track.album?.name ?? 'Unknown Album',
-                    artwork: artworkUrl ? { uri: artworkUrl } : undefined,
-                    duration: durationSec, // Duration in seconds
-                });
-                console.log('Media metadata updated:', { title, artistName });
-            } catch (e) {
-                console.warn('Failed to update media metadata:', e);
-            }
-        };
-
-        updateMetadata();
-    }, [track, localArtwork, durationSec]);
-    // 4. Update Playback State & Position
-    useEffect(() => {
-        if (!track) return;
-
-        const updateState = async () => {
-            try {
-                await MediaControl.updatePlaybackState(
-                    isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED,
-                    {
-                        position: positionSec || 0, // Position in seconds
-                        bufferedPosition: positionSec || 0, // We don't track buffering precisely here yet
-                        playbackRate: 1,
-                    }
-                );
-            } catch (e) {
-                console.warn('Failed to update playback state:', e);
-            }
-        };
-
-        updateState();
-
-        // FIXED: Removed the setInterval here. 
-        // We do NOT want to update the lockscreen every second, 
-        // the OS handles the timer automatically. 
-        // Forcing updates breaks the smoothness and causes the "stuck at 0" bug.
-
-    }, [track, isPlaying, positionSec]);
-
-    // --- End Expo Media Control Integration ---
 
     if (!track) return null;
+
     const hasValidImage = track.image && Array.isArray(track.image) && track.image.some(img => img['#text'] && (img['#text'].startsWith('http') || img['#text'].startsWith('file:')));
-    const images = localArtwork ||
-        (hasValidImage ? track.image : (track.source === 'tidal' ? null : track.image));
-    const imageUrl = images ?
-        (pickImageUrl(images, 'extralarge') || pickImageUrl(images, 'large')) : null;
-
-    const onSeekStart = () => {
-        setScrubbing(true);
-    };
-
-    const onSeekUpdate = (val) => {
-        setPlayback((prev) => ({ ...prev, positionMillis: val * 1000 }));
-    };
-
-    const onSeekComplete = async (val) => {
-        if (!sound || !playback.durationMillis) {
-            setScrubbing(false);
-            return;
-        }
-        try {
-            const newPositionMillis = val * 1000;
-            await sound.setPositionAsync(newPositionMillis);
-            setPlayback((prev) => ({ ...prev, positionMillis: newPositionMillis }));
-        } catch (e) {
-            console.warn('Error seeking', e);
-        } finally {
-            setTimeout(() => setScrubbing(false), 200);
-        }
-    };
-
-    const isLoading = (track?.isFetching || isResolvingTidal) && !activeUri;
-    // Mini Player Image
+    const images = localArtwork || (hasValidImage ? track.image : (track.source === 'tidal' ? null : track.image));
+    const imageUrl = images ? (pickImageUrl(images, 'extralarge') || pickImageUrl(images, 'large')) : null;
     const miniImageUrl = pickImageUrl(images, 'large');
+    const isLoading = (track?.isFetching || isResolvingTidal) && !isPlaying && progress.position === 0;
+
     // Interpolations
-    const containerTop = expandAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [screenHeight - 160, 0] // Adjust 160 based on tab bar + mini player height
-    });
-    const containerLeft = expandAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [16, 0]
-    });
-    const containerRight = expandAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [16, 0]
-    });
-    const containerHeight = expandAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [60, screenHeight]
-    });
-    const containerRadius = expandAnim.interpolate({
-        inputRange: [0, 0.95, 1],
-        outputRange: [40, 40, 0]
-    });
-    const miniOpacity = expandAnim.interpolate({
-        inputRange: [0, 0.2],
-        outputRange: [1, 0]
-    });
-    const fullOpacity = expandAnim.interpolate({
-        inputRange: [0, 0.4],
-        outputRange: [0, 1]
-    });
-    const hideTranslateY = hideAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, 200]
-    });
-    const hideOpacity = hideAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [1, 0]
-    });
-    const mainContentTranslateY = lyricsAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, -screenHeight],
-    });
-    const lyricsTranslateY = lyricsAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [screenHeight, 0],
-    });
-    // Dismiss animation interpolations for mini player
-    const dismissTranslateY = dismissAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, 150]
-    });
-    const dismissOpacity = dismissAnim.interpolate({
-        inputRange: [0, 0.5, 1],
-        outputRange: [1, 0.5, 0]
-    });
+    const containerTop = expandAnim.interpolate({ inputRange: [0, 1], outputRange: [screenHeight - 160, 0] });
+    const containerLeft = expandAnim.interpolate({ inputRange: [0, 1], outputRange: [16, 0] });
+    const containerRight = expandAnim.interpolate({ inputRange: [0, 1], outputRange: [16, 0] });
+    const containerHeight = expandAnim.interpolate({ inputRange: [0, 1], outputRange: [60, screenHeight] });
+    const containerRadius = expandAnim.interpolate({ inputRange: [0, 0.95, 1], outputRange: [40, 40, 0] });
+    const miniOpacity = expandAnim.interpolate({ inputRange: [0, 0.2], outputRange: [1, 0] });
+    const fullOpacity = expandAnim.interpolate({ inputRange: [0, 0.4], outputRange: [0, 1] });
+    const hideTranslateY = hideAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 200] });
+    const hideOpacity = hideAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
+    const mainContentTranslateY = lyricsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -screenHeight] });
+    const lyricsTranslateY = lyricsAnim.interpolate({ inputRange: [0, 1], outputRange: [screenHeight, 0] });
+    const dismissTranslateY = dismissAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 150] });
+    const dismissOpacity = dismissAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.5, 0] });
+
+    const canSkipNext = queue && queue.length > 0 && queueIndex < queue.length - 1;
+    const canSkipPrevious = queue && queue.length > 0 && queueIndex > 0;
+
     return (
         <Animated.View
             style={[
@@ -1110,8 +757,8 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
 
                         <View style={styles.progressContainer}>
                             <CustomSlider
-                                value={positionSec}
-                                maximumValue={durationSec || 1}
+                                value={progress.position}
+                                maximumValue={progress.duration || 1}
                                 onSlidingStart={onSeekStart}
                                 onValueChange={onSeekUpdate}
                                 onSlidingComplete={onSeekComplete}
@@ -1120,8 +767,8 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                                 progressColor={colors.detail}
                             />
                             <View style={styles.timeRow}>
-                                <Text style={[styles.timeText, { color: colors.detail }]}>{formatTime(positionSec)}</Text>
-                                <Text style={[styles.timeText, { color: colors.detail }]}>{formatTime(durationSec)}</Text>
+                                <Text style={[styles.timeText, { color: colors.detail }]}>{formatTime(progress.position)}</Text>
+                                <Text style={[styles.timeText, { color: colors.detail }]}>{formatTime(progress.duration)}</Text>
                             </View>
                         </View>
 
@@ -1181,8 +828,8 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                             <>
                                 <LyricsView
                                     track={track}
-                                    currentTime={positionSec}
-                                    duration={durationSec}
+                                    currentTime={progress.position}
+                                    duration={progress.duration}
                                     onSeek={onSeekComplete}
                                     backgroundColor={colors.secondary}
                                     textColor={colors.detail}
