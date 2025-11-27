@@ -867,7 +867,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         };
     }, []);
 
-    // 2. Update Metadata
+    // 3. Update Metadata
     useEffect(() => {
         if (!track) return;
 
@@ -888,6 +888,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                     artwork: artworkUrl ? { uri: artworkUrl } : undefined,
                     duration: durationSec || 0, // Duration in seconds
                 });
+                console.log('Media metadata updated:', { title, artistName });
             } catch (e) {
                 console.warn('Failed to update media metadata:', e);
             }
@@ -896,7 +897,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         updateMetadata();
     }, [track, localArtwork, durationSec]);
 
-    // 3. Update Playback State
+    // 4. Update Playback State & Position
     useEffect(() => {
         if (!track) return;
 
@@ -916,6 +917,18 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         };
 
         updateState();
+
+        // Update position every second while playing for real-time control center sync
+        let interval = null;
+        if (isPlaying) {
+            interval = setInterval(() => {
+                updateState();
+            }, 1000);
+        }
+
+        return () => {
+            if (interval) clearInterval(interval);
+        };
     }, [track, isPlaying, positionSec]);
 
     // --- End Expo Media Control Integration ---
