@@ -1,4 +1,5 @@
 import React, { createContext, useState, useContext, useRef, useEffect } from 'react';
+import { Alert } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { Audio } from 'expo-av';
@@ -315,7 +316,11 @@ export const DownloadProvider = ({ children, addToLibrary, useTidalForUnowned })
 
     } catch (error) {
       console.error('[DownloadContext] Download failed:', error);
-      alert(`Download failed: ${error.message}`);
+      if (error.message === 'Could not resolve Tidal stream for download') {
+        Alert.alert('Fail', 'Could not find a stream from your module!');
+      } else {
+        Alert.alert('Download Failed', error.message);
+      }
     } finally {
       setActiveDownloads(prev => {
         const { [trackId]: _, ...rest } = prev;

@@ -15,6 +15,12 @@ function normalizeString(str) {
     return str.toLowerCase()
         .replace(/[\u2018\u2019]/g, "'") // Replace smart single quotes
         .replace(/[\u201C\u201D]/g, '"') // Replace smart double quotes
+        .replace(/\s-\s/g, ' ') // Replace " - " with space
+        .replace(/[-]/g, ' ') // Replace all dashes with space
+        .replace(/[:;]/g, ' ') // Replace colons and semicolons
+        .replace(/[()\[\]{}]/g, '') // Remove parentheses, brackets, braces
+        .replace(/[.,!]/g, '') // Remove punctuation
+        .replace(/\s+/g, ' ') // Collapse multiple spaces
         .trim();
 }
 
@@ -30,21 +36,18 @@ export async function findAndStreamTrack(trackName, artistName, albumName = null
         // Build search query - ALWAYS include artist if available
         let query = '';
 
-        if (artistName && artistName !== 'Unknown Artist' && artistName.trim() !== '') {
+        // Clean the names for the query to help the search engine
+        const cleanTrackName = trackName.replace(/\s-\s/g, ' ').replace(/[()]/g, '');
+        const cleanArtistName = artistName ? artistName.replace(/\s-\s/g, ' ') : '';
+
+        if (cleanArtistName && cleanArtistName !== 'Unknown Artist' && cleanArtistName.trim() !== '') {
             // Include artist for better matching
-            query = `${trackName} ${artistName}`;
+            query = `${cleanTrackName} ${cleanArtistName}`;
         } else {
-            query = trackName;
+            query = cleanTrackName;
         }
-        
-        // Normalize query for logging/debugging (optional, but good practice)
-        // But we send the original query to the module as it might handle fuzzy search
-        // actually, let's sanitize the query sent to the module too? 
-        // Some servers/modules might prefer straight quotes.
-        // But if we modify the query, we might miss exact matches if the server supports smart quotes.
-        // Let's keep the query as is for the module search, but rely on our robust filtering.
-        
-        console.log('[Tidal Stream Helper] Searching for:', query, '(Track:', trackName, 'Artist:', artistName || 'N/A', ')');
+
+        console.log('[Tidal Stream Helper] Searching for:', query, '(Original:', trackName, ')');
 
         // Search via ModuleManager
         const response = await ModuleManager.searchTracks(query, 10); // Get top 10 results
@@ -61,27 +64,42 @@ export async function findAndStreamTrack(trackName, artistName, albumName = null
             const searchArtist = normalizeString(artistName);
             const searchTitle = normalizeString(trackName);
 
-            // Prioritize exact matches
-            candidates = tracks.filter(track => {
+            // 1. Try Strict Match (Artist + Title)
+            let strictCandidates = tracks.filter(track => {
                 const trackArtist = normalizeString(typeof track.artist === 'string' ? track.artist : track.artist?.name || '');
                 const trackTitle = normalizeString(track.title);
-                // Require BOTH artist and title to match to avoid wrong songs from same artist
-                return trackArtist.includes(searchArtist) && trackTitle.includes(searchTitle); 
+                return trackArtist.includes(searchArtist) && trackTitle.includes(searchTitle);
             });
 
-            // If no strict matches, try title match only (in case artist name varies e.g. "Feat.")
-            if (candidates.length === 0) {
-                 candidates = tracks.filter(track => {
+            // 2. If no strict match, try Relaxed Match (Artist Match + Title Partial)
+            if (strictCandidates.length === 0) {
+                strictCandidates = tracks.filter(track => {
+                    const trackArtist = normalizeString(typeof track.artist === 'string' ? track.artist : track.artist?.name || '');
                     const trackTitle = normalizeString(track.title);
-                    return trackTitle.includes(searchTitle);
-                 });
+
+                    // Artist must match
+                    if (!trackArtist.includes(searchArtist) && !searchArtist.includes(trackArtist)) return false;
+
+                    // Title can be a partial match in EITHER direction
+                    // e.g. "Song (Remix)" includes "Song", or "Song" is included in "Song (Remix)"
+                    return trackTitle.includes(searchTitle) || searchTitle.includes(trackTitle);
+                });
             }
+
+            candidates = strictCandidates;
 
             // If still no matches, DO NOT revert to all tracks (which often contains irrelevant results)
             // This prevents playing "Gorgeous" when asking for "New Slaves"
             if (candidates.length === 0) {
                 console.warn('[Tidal Stream Helper] No candidates matched the search criteria strictly');
-                return null; 
+                // Log the top result for debugging
+                if (tracks.length > 0) {
+                    const top = tracks[0];
+                    console.log('[Tidal Stream Helper] Top rejected result:', top.title, 'by', top.artist);
+                    console.log('[Tidal Stream Helper] Normalized Search:', searchTitle, 'by', searchArtist);
+                    console.log('[Tidal Stream Helper] Normalized Top:', normalizeString(top.title), 'by', normalizeString(typeof top.artist === 'string' ? top.artist : top.artist?.name || ''));
+                }
+                return null;
             }
         }
 
@@ -145,12 +163,12 @@ export async function getFreshTidalStream(tidalId) {
     try {
         // Get existing cache to check the track's original source
         const cached = await getCachedTrack(tidalId);
-        
+
         // Determine which module format to expect
         // Prefer the cached track's source, fall back to active module
         const activeModule = ModuleManager.getActiveModule();
         const moduleId = cached?.source || activeModule?.id || 'unknown';
-        
+
         // Only validate for numeric IDs if the track came from TIDAL module
         // Other modules (YTDL, SpartDL) use Spotify URLs as IDs
         if (moduleId === 'tidal') {
@@ -160,12 +178,12 @@ export async function getFreshTidalStream(tidalId) {
                 return null; // Return null to force fallback to name-based search
             }
         }
-        
+
         console.log(`[Stream Helper] Getting fresh stream for ID (${moduleId}):`, tidalId);
         const streamData = await ModuleManager.getTrackStreamUrl(tidalId, 'LOSSLESS');
-        
+
         if (streamData && streamData.streamUrl) {
-            
+
             const updatedTrack = {
                 ...(cached || {}),
                 uri: streamData.streamUrl,
@@ -177,7 +195,7 @@ export async function getFreshTidalStream(tidalId) {
 
             // Update cache
             await saveToCache(tidalId, updatedTrack);
-            
+
             return updatedTrack;
         }
     } catch (e) {
@@ -240,10 +258,10 @@ export async function getPlayableTrack(track, useTidalForUnowned = false) {
     // Try to find in cache by metadata (Name + Artist)
     // This handles cases where we haven't "enriched" the track object in the UI yet but have it in cache
     const cachedByMeta = await getCachedTrackByMetadata(
-        track.name, 
+        track.name,
         typeof track.artist === 'string' ? track.artist : (track.artist?.name || track.artist)
     );
-    
+
     if (cachedByMeta && cachedByMeta.uri) {
         console.log('[Tidal Stream Helper] Found cached stream by Metadata for:', track.name);
         return {
