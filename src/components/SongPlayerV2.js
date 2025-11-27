@@ -775,6 +775,19 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
 
     // --- Expo Media Control Integration ---
 
+    // Refs for media control callbacks
+    const togglePlayRef = useRef(togglePlay);
+    const skipNextRef = useRef(skipNext);
+    const skipPreviousRef = useRef(skipPrevious);
+    const onSeekCompleteRef = useRef(onSeekComplete);
+
+    useEffect(() => {
+        togglePlayRef.current = togglePlay;
+        skipNextRef.current = skipNext;
+        skipPreviousRef.current = skipPrevious;
+        onSeekCompleteRef.current = onSeekComplete;
+    }, [togglePlay, skipNext, skipPrevious, onSeekComplete]);
+
     // 1. Enable/Disable Controls & Event Listeners
     useEffect(() => {
         const setupMediaControls = async () => {
@@ -796,36 +809,42 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         setupMediaControls();
 
         const listener = MediaControl.addListener((event) => {
-            switch (event.command) {
-                case Command.PLAY:
-                    togglePlay();
-                    break;
-                case Command.PAUSE:
-                    togglePlay();
-                    break;
-                case Command.NEXT_TRACK:
-                    skipNext();
-                    break;
-                case Command.PREVIOUS_TRACK:
-                    skipPrevious();
-                    break;
-                case Command.SEEK:
-                    if (event.data?.position !== undefined) {
-                        // event.data.position is usually in seconds for native controls, but let's verify.
-                        // Usually native controls send seconds. Expo AV expects millis.
-                        onSeekComplete(event.data.position);
-                    }
-                    break;
-                default:
-                    break;
+            try {
+                switch (event.command) {
+                    case Command.PLAY:
+                        togglePlayRef.current?.();
+                        break;
+                    case Command.PAUSE:
+                        togglePlayRef.current?.();
+                        break;
+                    case Command.NEXT_TRACK:
+                        skipNextRef.current?.();
+                        break;
+                    case Command.PREVIOUS_TRACK:
+                        skipPreviousRef.current?.();
+                        break;
+                    case Command.SEEK:
+                        if (event.data?.position !== undefined) {
+                            onSeekCompleteRef.current?.(event.data.position);
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            } catch (error) {
+                console.warn('Error handling media control command:', error);
             }
         });
 
         return () => {
-            listener.remove();
-            MediaControl.disableMediaControls();
+            try {
+                listener.remove();
+                MediaControl.disableMediaControls();
+            } catch (error) {
+                console.warn('Error cleaning up media controls:', error);
+            }
         };
-    }, [togglePlay, skipNext, skipPrevious]);
+    }, []);
 
     // 2. Update Metadata
     useEffect(() => {
@@ -858,6 +877,8 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
 
     // 3. Update Playback State
     useEffect(() => {
+        if (!track) return;
+
         const updateState = async () => {
             try {
                 await MediaControl.updatePlaybackState(
@@ -874,7 +895,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         };
 
         updateState();
-    }, [isPlaying, positionSec]);
+    }, [track, isPlaying, positionSec]);
 
     // --- End Expo Media Control Integration ---
 
