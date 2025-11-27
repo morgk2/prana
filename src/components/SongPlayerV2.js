@@ -23,7 +23,9 @@ if (Platform.OS === 'android') {
         UIManager.setLayoutAnimationEnabledExperimental(true);
     }
 }
-import { Audio } from 'expo-av';
+
+// FIXED: Imported interruption modes for proper background audio config
+import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MediaControl, { Command, PlaybackState } from 'expo-media-control';
@@ -90,7 +92,6 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
     const heightAnim = useRef(new Animated.Value(6)).current;
     const pulseAnim = useRef(new Animated.Value(0.3)).current;
     const isDragging = useRef(false);
-
     useEffect(() => {
         if (isLoading) {
             Animated.loop(
@@ -103,7 +104,6 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
             pulseAnim.setValue(1);
         }
     }, [isLoading]);
-
     const handleTouch = (e, type) => {
         if (width <= 0) return;
         const { locationX } = e.nativeEvent;
@@ -111,7 +111,6 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
         const clampedX = Math.max(0, Math.min(locationX, width));
         const ratio = clampedX / width;
         const newValue = ratio * maximumValue;
-
         if (type === 'start') {
             isDragging.current = true;
             Animated.timing(heightAnim, { toValue: 16, duration: 150, useNativeDriver: false }).start();
@@ -125,9 +124,7 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
             if (onSlidingComplete) onSlidingComplete(newValue);
         }
     };
-
     const progress = maximumValue > 0 ? Math.min(1, Math.max(0, value / maximumValue)) : 0;
-
     return (
         <View
             style={{ height: 40, justifyContent: 'center' }}
@@ -166,7 +163,6 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
 
 function AnimatedControl({ onPress, children, style, disabled }) {
     const scale = useRef(new Animated.Value(1)).current;
-
     const handlePressIn = () => {
         Animated.spring(scale, {
             toValue: 0.92,
@@ -204,7 +200,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const { height: screenHeight, width: screenWidth } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const { recentDownloads } = useDownload();
-
     // Set player background colors based on playerColorMode
     const colors = playerColorMode === 'light' ? {
         primary: '#FFFFFF',
@@ -215,7 +210,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         secondary: '#202020',
         detail: '#ffffff',
     };
-
     const [sound, setSound] = useState(null);
     const [playback, setPlayback] = useState({
         positionMillis: 0,
@@ -223,12 +217,30 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         isPlaying: false,
     });
 
+    // FIXED: Configure Audio Session for Background Music
+    useEffect(() => {
+        const configureAudio = async () => {
+            try {
+                await Audio.setAudioModeAsync({
+                    allowsRecordingIOS: false,
+                    staysActiveInBackground: true, // Needed for background play
+                    interruptionModeIOS: InterruptionModeIOS.DoNotMix, // Needed to show Next/Prev instead of Seek 15s
+                    playsInSilentModeIOS: true,
+                    shouldDuckAndroid: true,
+                    interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+                    playThroughEarpieceAndroid: false
+                });
+            } catch (e) {
+                console.warn('Error configuring audio session:', e);
+            }
+        };
+        configureAudio();
+    }, []);
+
     // Animation for hiding the player (slide down)
     const hideAnim = useRef(new Animated.Value(shouldHide ? 1 : 0)).current;
-
     // Animation for dismissing the mini player completely
     const dismissAnim = useRef(new Animated.Value(0)).current;
-
     useEffect(() => {
         Animated.timing(hideAnim, {
             toValue: shouldHide ? 1 : 0,
@@ -236,7 +248,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             useNativeDriver: false, // Changed to false to support layout props on the same view
         }).start();
     }, [shouldHide]);
-
     // ... existing state ...
     const [isScrubbing, setIsScrubbing] = useState(false);
     const isScrubbingRef = useRef(false);
@@ -244,16 +255,13 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const [localArtwork, setLocalArtwork] = useState(null);
     const [isResolvingTidal, setIsResolvingTidal] = useState(false);
     const [modalAnimationType, setModalAnimationType] = useState('slide');
-
     // Ref to prevent unnecessary artwork refetches if track props change shallowly
     const lastTrackSignature = useRef('');
-
     const resolvedDownloadUri = React.useMemo(() => {
         if (!track) return null;
         const tid = track.id || track.name;
         return recentDownloads?.[tid] || recentDownloads?.[track.name];
     }, [recentDownloads, track?.id, track?.name]);
-
     // Fetch artwork if missing
     useEffect(() => {
         const currentArtistName = track?.artist?.name || track?.artist || '';
@@ -286,21 +294,18 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const currentIndexRef = useRef(queueIndex);
     const repeatModeRef = useRef(repeatMode);
     const onTrackChangeRef = useRef(onTrackChange);
-
     useEffect(() => {
         queueRef.current = queue;
         currentIndexRef.current = queueIndex;
         repeatModeRef.current = repeatMode;
         onTrackChangeRef.current = onTrackChange;
     }, [queue, queueIndex, repeatMode, onTrackChange]);
-
     const slideAnim = useRef(new Animated.Value(0)).current;
     const [queueVisible, setQueueVisible] = useState(false);
     const [isShuffleEnabled, setIsShuffleEnabled] = useState(false);
     const lyricsAnim = useRef(new Animated.Value(0)).current;
     const [showLyrics, setShowLyrics] = useState(false);
     const [isLyricsRendered, setIsLyricsRendered] = useState(false);
-
     // Button Animations
     const playPauseScale = useRef(new Animated.Value(1)).current;
     const nextTranslate = useRef(new Animated.Value(0)).current;
@@ -313,11 +318,9 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             Animated.spring(playPauseScale, { toValue: 1, friction: 5, useNativeDriver: true })
         ]).start();
     }, [isPlaying]);
-
     const animateSkip = (direction) => {
         const anim = direction === 'next' ? nextTranslate : prevTranslate;
         const value = direction === 'next' ? 15 : -15;
-
         Animated.sequence([
             Animated.timing(anim, { toValue: value, duration: 150, useNativeDriver: true }),
             Animated.spring(anim, { toValue: 0, friction: 6, useNativeDriver: true })
@@ -348,22 +351,18 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     }, [showLyrics]);
 
     const expandAnim = useRef(new Animated.Value(isVisible ? 1 : 0)).current;
-
     const isVisibleRef = useRef(isVisible);
     const onCloseRef = useRef(onClose);
     const onKillRef = useRef(onKill);
     const queueVisibleRef = useRef(queueVisible);
-
     useEffect(() => {
         isVisibleRef.current = isVisible;
         onCloseRef.current = onClose;
         onKillRef.current = onKill;
     }, [isVisible, onClose, onKill]);
-
     useEffect(() => {
         queueVisibleRef.current = queueVisible;
     }, [queueVisible]);
-
     useEffect(() => {
         if (!isVisible) {
             const timer = setTimeout(() => {
@@ -372,7 +371,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             return () => clearTimeout(timer);
         }
     }, [isVisible]);
-
     useEffect(() => {
         Animated.spring(expandAnim, {
             toValue: isVisible ? 1 : 0,
@@ -382,7 +380,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             useNativeDriver: false,
         }).start();
     }, [isVisible]);
-
     const panResponder = useRef(
         PanResponder.create({
             onStartShouldSetPanResponder: () => isVisibleRef.current,
@@ -425,7 +422,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             },
         })
     ).current;
-
     // PanResponder for mini player dismiss (swipe down to kill)
     const miniPlayerPanResponder = useRef(
         PanResponder.create({
@@ -475,12 +471,10 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             },
         })
     ).current;
-
     const setScrubbing = (value) => {
         isScrubbingRef.current = value;
         setIsScrubbing(value);
     };
-
     const toggleLyrics = () => {
         LayoutAnimation.configureNext({
             duration: 300,
@@ -507,7 +501,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             }
         }
     };
-
     useEffect(() => {
         if (!queue || queue.length === 0) return;
         const prefetch = async () => {
@@ -526,13 +519,11 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         const timer = setTimeout(prefetch, 1000);
         return () => clearTimeout(timer);
     }, [queue, queueIndex]);
-
     const [activeUri, setActiveUri] = useState(null);
 
     useEffect(() => {
         setActiveUri(track?.uri ?? track?.previewUrl ?? null);
     }, [track?.uri, track?.previewUrl, track?.id]);
-
     useEffect(() => {
         let soundObj = null;
         let cancelled = false;
@@ -579,7 +570,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                     const uriWithHint = (Platform.OS === 'ios' && !uri.match(/\.[a-zA-Z0-9]{3,4}$/) && !uri.includes('#'))
                         ? `${uri}#.mp3`
                         : uri;
-
                     const isLocal = uri.startsWith('file://');
 
                     // For local files, try decoding the URI to handle spaces correctly
@@ -636,7 +626,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                     throw e;
                 }
             };
-
             try {
                 if (currentUri) {
                     soundObj = await loadSound(currentUri);
@@ -650,7 +639,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                 }
             } catch (initialError) {
                 console.warn('[SongPlayer] Initial load failed:', initialError.message);
-
                 if (workingTidalId && (track?.source === 'tidal' || shouldStreamFromTidal(track, true))) {
                     if (!cancelled) setIsResolvingTidal(true);
                     try {
@@ -711,7 +699,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             setPlayback({ positionMillis: 0, durationMillis: 0, isPlaying: false });
         };
     }, [track?.uri, track?.previewUrl, track?.id, track?.name, resolvedDownloadUri]);
-
     useEffect(() => {
         if (track) {
             preloadLyrics(track);
@@ -720,11 +707,9 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             preloadQueueLyrics(queue, queueIndex, 3);
         }
     }, [track, queue, queueIndex]);
-
     const positionSec = (playback.positionMillis || 0) / 1000;
     const durationSec = (playback.durationMillis || 0) / 1000;
     const isPlaying = playback.isPlaying;
-
     const togglePlay = useCallback(async () => {
         if (!sound) return;
         try {
@@ -737,7 +722,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             console.warn('Error toggling playback', e);
         }
     }, [sound, isPlaying]);
-
     const skipNext = useCallback(() => {
         animateSkip('next');
         if (!onTrackChange || !queue || queue.length === 0) return;
@@ -750,7 +734,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             });
         }
     }, [onTrackChange, queue, queueIndex, slideAnim]);
-
     const skipPrevious = useCallback(() => {
         animateSkip('prev');
         if (!onTrackChange || !queue || queue.length === 0) return;
@@ -763,16 +746,13 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             });
         }
     }, [onTrackChange, queue, queueIndex, slideAnim]);
-
     const canSkipNext = queue && queue.length > 0 && queueIndex < queue.length - 1;
     const canSkipPrevious = queue && queue.length > 0 && queueIndex > 0;
-
     useEffect(() => {
         if (setPlayerControls) {
             setPlayerControls({ togglePlay, isPlaying });
         }
     }, [setPlayerControls, togglePlay, isPlaying]);
-
     // --- Expo Media Control Integration ---
 
     // Refs for media control callbacks
@@ -780,14 +760,12 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const skipNextRef = useRef(skipNext);
     const skipPreviousRef = useRef(skipPrevious);
     const onSeekCompleteRef = useRef(onSeekComplete);
-
     useEffect(() => {
         togglePlayRef.current = togglePlay;
         skipNextRef.current = skipNext;
         skipPreviousRef.current = skipPrevious;
         onSeekCompleteRef.current = onSeekComplete;
     }, [togglePlay, skipNext, skipPrevious, onSeekComplete]);
-
     // 1. Enable/Disable Controls & Event Listeners
     useEffect(() => {
         let listener = null;
@@ -817,7 +795,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             }
 
             if (isCleanedUp) return;
-
             try {
                 listener = MediaControl.addListener((event) => {
                     try {
@@ -852,7 +829,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         };
 
         setupMediaControls();
-
         return () => {
             isCleanedUp = true;
             try {
@@ -866,10 +842,12 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             }
         };
     }, []);
-
     // 3. Update Metadata
     useEffect(() => {
         if (!track) return;
+
+        // FIXED: Do not update metadata if duration is 0, this breaks the lockscreen
+        if (!durationSec || durationSec === 0) return;
 
         const updateMetadata = async () => {
             try {
@@ -886,7 +864,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                     artist: artistName,
                     album: track.album?.name ?? 'Unknown Album',
                     artwork: artworkUrl ? { uri: artworkUrl } : undefined,
-                    duration: durationSec || 0, // Duration in seconds
+                    duration: durationSec, // Duration in seconds
                 });
                 console.log('Media metadata updated:', { title, artistName });
             } catch (e) {
@@ -896,7 +874,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
 
         updateMetadata();
     }, [track, localArtwork, durationSec]);
-
     // 4. Update Playback State & Position
     useEffect(() => {
         if (!track) return;
@@ -918,26 +895,21 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
 
         updateState();
 
-        // Update position every second while playing for real-time control center sync
-        let interval = null;
-        if (isPlaying) {
-            interval = setInterval(() => {
-                updateState();
-            }, 1000);
-        }
+        // FIXED: Removed the setInterval here. 
+        // We do NOT want to update the lockscreen every second, 
+        // the OS handles the timer automatically. 
+        // Forcing updates breaks the smoothness and causes the "stuck at 0" bug.
 
-        return () => {
-            if (interval) clearInterval(interval);
-        };
     }, [track, isPlaying, positionSec]);
 
     // --- End Expo Media Control Integration ---
 
     if (!track) return null;
-
     const hasValidImage = track.image && Array.isArray(track.image) && track.image.some(img => img['#text'] && (img['#text'].startsWith('http') || img['#text'].startsWith('file:')));
-    const images = localArtwork || (hasValidImage ? track.image : (track.source === 'tidal' ? null : track.image));
-    const imageUrl = images ? (pickImageUrl(images, 'extralarge') || pickImageUrl(images, 'large')) : null;
+    const images = localArtwork ||
+        (hasValidImage ? track.image : (track.source === 'tidal' ? null : track.image));
+    const imageUrl = images ?
+        (pickImageUrl(images, 'extralarge') || pickImageUrl(images, 'large')) : null;
 
     const onSeekStart = () => {
         setScrubbing(true);
@@ -964,81 +936,62 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     };
 
     const isLoading = (track?.isFetching || isResolvingTidal) && !activeUri;
-
     // Mini Player Image
     const miniImageUrl = pickImageUrl(images, 'large');
-
     // Interpolations
     const containerTop = expandAnim.interpolate({
         inputRange: [0, 1],
         outputRange: [screenHeight - 160, 0] // Adjust 160 based on tab bar + mini player height
     });
-
     const containerLeft = expandAnim.interpolate({
         inputRange: [0, 1],
         outputRange: [16, 0]
     });
-
     const containerRight = expandAnim.interpolate({
         inputRange: [0, 1],
         outputRange: [16, 0]
     });
-
     const containerHeight = expandAnim.interpolate({
         inputRange: [0, 1],
         outputRange: [60, screenHeight]
     });
-
     const containerRadius = expandAnim.interpolate({
         inputRange: [0, 0.95, 1],
         outputRange: [40, 40, 0]
     });
-
-
-
-
-
     const miniOpacity = expandAnim.interpolate({
         inputRange: [0, 0.2],
         outputRange: [1, 0]
     });
-
     const fullOpacity = expandAnim.interpolate({
         inputRange: [0, 0.4],
         outputRange: [0, 1]
     });
-
     const hideTranslateY = hideAnim.interpolate({
         inputRange: [0, 1],
         outputRange: [0, 200]
     });
-
     const hideOpacity = hideAnim.interpolate({
         inputRange: [0, 1],
         outputRange: [1, 0]
     });
-
     const mainContentTranslateY = lyricsAnim.interpolate({
         inputRange: [0, 1],
         outputRange: [0, -screenHeight],
     });
-
     const lyricsTranslateY = lyricsAnim.interpolate({
         inputRange: [0, 1],
         outputRange: [screenHeight, 0],
     });
-
     // Dismiss animation interpolations for mini player
     const dismissTranslateY = dismissAnim.interpolate({
         inputRange: [0, 1],
         outputRange: [0, 150]
     });
-
     const dismissOpacity = dismissAnim.interpolate({
         inputRange: [0, 0.5, 1],
         outputRange: [1, 0.5, 0]
     });
-
     return (
         <Animated.View
             style={[
