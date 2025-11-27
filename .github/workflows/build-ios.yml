@@ -7,11 +7,13 @@ on:
       - main
       - master
       - release
+      - preprod
   pull_request:
     branches:
       - main
       - master
       - release
+      - preprod
   workflow_dispatch:
 
 
