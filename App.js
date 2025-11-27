@@ -20,6 +20,7 @@ import AddPlaylist from './src/components/AddPlaylist';
 import PlaylistPage from './src/components/PlaylistPage';
 import ImportExternalPlaylist from './src/components/ImportExternalPlaylist';
 import SongPlayer from './src/components/SongPlayer';
+import SongPlayerV2 from './src/components/SongPlayerV2';
 import HomeScreen from './src/components/HomeScreen';
 import ModulesPage from './src/components/ModulesPage';
 import PlayerColorsPage from './src/components/PlayerColorsPage';
@@ -3104,7 +3105,7 @@ function AppContent() {
 
         {/* Full-screen Song Player */}
         {currentTrack && (
-          <SongPlayer
+          <SongPlayerV2
             track={currentTrack}
             queue={currentQueue}
             queueIndex={currentQueueIndex}
