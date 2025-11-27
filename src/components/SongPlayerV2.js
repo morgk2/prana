@@ -396,7 +396,15 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                     }
                 }
             }),
-            TrackPlayer.addEventListener(Event.RemoteSeek, (event) => TrackPlayer.seekTo(event.position)),
+            TrackPlayer.addEventListener(Event.RemoteSeek, async (event) => {
+                // Don't interfere if user is currently scrubbing in-app
+                if (isScrubbingRef.current) return;
+                try {
+                    await TrackPlayer.seekTo(event.position);
+                } catch (e) {
+                    console.warn('Error seeking from remote', e);
+                }
+            }),
         ];
 
         return () => {
@@ -430,7 +438,8 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     }, [onTrackChange, queue, queueIndex]);
 
     const onSeekStart = () => {
-        setScrubbing(true);
+        setIsScrubbing(true);
+        isScrubbingRef.current = true;
     };
 
     const onSeekUpdate = (val) => {
@@ -440,9 +449,11 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const onSeekComplete = async (val) => {
         try {
             await TrackPlayer.seekTo(val);
-            setIsScrubbing(false);
         } catch (e) {
             console.warn('Error seeking', e);
+        } finally {
+            setIsScrubbing(false);
+            isScrubbingRef.current = false;
         }
     };
 
