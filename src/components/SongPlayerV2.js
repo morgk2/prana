@@ -219,9 +219,11 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const nextTranslate = useRef(new Animated.Value(0)).current;
     const prevTranslate = useRef(new Animated.Value(0)).current;
     const expandAnim = useRef(new Animated.Value(isVisible ? 1 : 0)).current;
+    const initialMountAnim = useRef(new Animated.Value(0)).current;
 
     const [isScrubbing, setIsScrubbing] = useState(false);
     const isScrubbingRef = useRef(false);
+    const [scrubbingPosition, setScrubbingPosition] = useState(0);
     const [repeatMode, setRepeatMode] = useState(0);
     const [localArtwork, setLocalArtwork] = useState(null);
     const [isResolvingTidal, setIsResolvingTidal] = useState(false);
@@ -229,6 +231,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const [isShuffleEnabled, setIsShuffleEnabled] = useState(false);
     const [showLyrics, setShowLyrics] = useState(false);
     const [isLyricsRendered, setIsLyricsRendered] = useState(false);
+    const [isTrackLoading, setIsTrackLoading] = useState(false);
 
     const lastTrackSignature = useRef('');
     const resolvedDownloadUri = React.useMemo(() => {
@@ -348,6 +351,23 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         };
     }, [track?.id, track?.uri, track?.name, resolvedDownloadUri]);
 
+    // Reset track loading state when track starts playing
+    useEffect(() => {
+        if (isPlaying && progress.position > 0) {
+            setIsTrackLoading(false);
+        }
+    }, [isPlaying, progress.position]);
+
+    // Initial mount animation - slide up from bottom
+    useEffect(() => {
+        Animated.spring(initialMountAnim, {
+            toValue: 1,
+            useNativeDriver: true,
+            friction: 10,
+            tension: 80,
+        }).start();
+    }, []);
+
     // Track End Handling & Remote Events
     useEffect(() => {
         const subs = [
@@ -425,25 +445,39 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         if (!onTrackChange || !queue || queue.length === 0) return;
         const nextIndex = queueIndex + 1;
         if (nextIndex < queue.length) {
-            onTrackChange(queue[nextIndex], nextIndex);
+            setIsTrackLoading(true);
+            // Animate artwork sliding left
+            Animated.timing(slideAnim, { toValue: -1, duration: 300, useNativeDriver: true }).start(() => {
+                onTrackChange(queue[nextIndex], nextIndex);
+                slideAnim.setValue(1);
+                Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
+            });
         }
-    }, [onTrackChange, queue, queueIndex]);
+    }, [onTrackChange, queue, queueIndex, slideAnim]);
 
     const skipPrevious = useCallback(() => {
         if (!onTrackChange || !queue || queue.length === 0) return;
         const prevIndex = queueIndex - 1;
         if (prevIndex >= 0) {
-            onTrackChange(queue[prevIndex], prevIndex);
+            setIsTrackLoading(true);
+            // Animate artwork sliding right
+            Animated.timing(slideAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start(() => {
+                onTrackChange(queue[prevIndex], prevIndex);
+                slideAnim.setValue(-1);
+                Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
+            });
         }
-    }, [onTrackChange, queue, queueIndex]);
+    }, [onTrackChange, queue, queueIndex, slideAnim]);
 
     const onSeekStart = () => {
         setIsScrubbing(true);
         isScrubbingRef.current = true;
+        setScrubbingPosition(progress.position);
     };
 
     const onSeekUpdate = (val) => {
-        // Optional: Update local state for smooth slider
+        // Update the scrubbing position for real-time visual feedback
+        setScrubbingPosition(val);
     };
 
     const onSeekComplete = async (val) => {
@@ -542,7 +576,11 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     // PanResponder
     const panResponder = useRef(
         PanResponder.create({
-            onStartShouldSetPanResponder: () => isVisibleRef.current,
+            onStartShouldSetPanResponder: () => {
+                // Don't capture gestures during scrubbing
+                if (isScrubbingRef.current) return false;
+                return isVisibleRef.current;
+            },
             onMoveShouldSetPanResponder: (evt, gestureState) => {
                 if (!isVisibleRef.current) return false;
                 if (isScrubbingRef.current) return false;
@@ -555,16 +593,22 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                 return isDownwardSwipe && isVerticalDominant;
             },
             onPanResponderGrant: () => {
+                // Don't grant if scrubbing
+                if (isScrubbingRef.current) return;
                 expandAnim.setOffset(expandAnim._value);
                 expandAnim.setValue(0);
             },
             onPanResponderMove: (evt, gestureState) => {
+                // Block movement during scrubbing
+                if (isScrubbingRef.current) return;
                 if (gestureState.dy > 0) {
                     const change = gestureState.dy / screenHeight;
                     expandAnim.setValue(-change);
                 }
             },
             onPanResponderRelease: (evt, gestureState) => {
+                // Don't process release during scrubbing
+                if (isScrubbingRef.current) return;
                 expandAnim.flattenOffset();
                 if (gestureState.dy > screenHeight * 0.15 || gestureState.vy > 0.5) {
                     if (onCloseRef.current) onCloseRef.current();
@@ -582,7 +626,11 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
 
     const miniPlayerPanResponder = useRef(
         PanResponder.create({
-            onStartShouldSetPanResponder: () => !isVisibleRef.current,
+            onStartShouldSetPanResponder: () => {
+                // Don't capture gestures during scrubbing
+                if (isScrubbingRef.current) return false;
+                return !isVisibleRef.current;
+            },
             onMoveShouldSetPanResponder: (evt, gestureState) => {
                 if (isVisibleRef.current) return false;
                 if (isScrubbingRef.current) return false;
@@ -591,23 +639,36 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                 return isDownwardSwipe && isVerticalDominant;
             },
             onPanResponderGrant: () => {
+                // Don't grant if scrubbing
+                if (isScrubbingRef.current) return;
                 dismissAnim.setOffset(dismissAnim._value);
                 dismissAnim.setValue(0);
             },
             onPanResponderMove: (evt, gestureState) => {
+                // Block movement during scrubbing
+                if (isScrubbingRef.current) return;
                 if (gestureState.dy > 0) {
                     const progress = Math.min(gestureState.dy / 150, 1);
                     dismissAnim.setValue(progress);
                 }
             },
             onPanResponderRelease: (evt, gestureState) => {
+                // Don't process release during scrubbing
+                if (isScrubbingRef.current) return;
                 dismissAnim.flattenOffset();
                 if (gestureState.dy > 80 || gestureState.vy > 0.8) {
                     Animated.timing(dismissAnim, {
                         toValue: 1,
                         duration: 200,
                         useNativeDriver: false,
-                    }).start(() => {
+                    }).start(async () => {
+                        // Stop playback and cleanup before killing the player
+                        try {
+                            await TrackPlayer.pause();
+                            await TrackPlayer.reset();
+                        } catch (e) {
+                            console.warn('Error stopping playback on kill:', e);
+                        }
                         if (onKillRef.current) {
                             onKillRef.current();
                         }
@@ -630,7 +691,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const images = localArtwork || (hasValidImage ? track.image : (track.source === 'tidal' ? null : track.image));
     const imageUrl = images ? (pickImageUrl(images, 'extralarge') || pickImageUrl(images, 'large')) : null;
     const miniImageUrl = pickImageUrl(images, 'large');
-    const isLoading = (track?.isFetching || isResolvingTidal) && !isPlaying && progress.position === 0;
+    const isLoading = isTrackLoading || ((track?.isFetching || isResolvingTidal) && !isPlaying);
 
     // Interpolations
     const containerTop = expandAnim.interpolate({ inputRange: [0, 1], outputRange: [screenHeight - 160, 0] });
@@ -646,6 +707,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const lyricsTranslateY = lyricsAnim.interpolate({ inputRange: [0, 1], outputRange: [screenHeight, 0] });
     const dismissTranslateY = dismissAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 150] });
     const dismissOpacity = dismissAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.5, 0] });
+    const initialMountTranslateY = initialMountAnim.interpolate({ inputRange: [0, 1], outputRange: [200, 0] });
 
     const canSkipNext = queue && queue.length > 0 && queueIndex < queue.length - 1;
     const canSkipPrevious = queue && queue.length > 0 && queueIndex > 0;
@@ -662,7 +724,9 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                     borderRadius: containerRadius,
                     zIndex: zIndex,
                     elevation: zIndex > 0 ? 1 : 0,
-                    transform: [{ translateY: hideTranslateY }],
+                    transform: [
+                        { translateY: Animated.add(hideTranslateY, initialMountTranslateY) }
+                    ],
                     opacity: hideOpacity,
                 }
             ]}
@@ -768,7 +832,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
 
                         <View style={styles.progressContainer}>
                             <CustomSlider
-                                value={progress.position}
+                                value={isScrubbing ? scrubbingPosition : progress.position}
                                 maximumValue={progress.duration || 1}
                                 onSlidingStart={onSeekStart}
                                 onValueChange={onSeekUpdate}
@@ -778,7 +842,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                                 progressColor={colors.detail}
                             />
                             <View style={styles.timeRow}>
-                                <Text style={[styles.timeText, { color: colors.detail }]}>{formatTime(progress.position)}</Text>
+                                <Text style={[styles.timeText, { color: colors.detail }]}>{formatTime(isScrubbing ? scrubbingPosition : progress.position)}</Text>
                                 <Text style={[styles.timeText, { color: colors.detail }]}>{formatTime(progress.duration)}</Text>
                             </View>
                         </View>
