@@ -219,7 +219,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const nextTranslate = useRef(new Animated.Value(0)).current;
     const prevTranslate = useRef(new Animated.Value(0)).current;
     const expandAnim = useRef(new Animated.Value(isVisible ? 1 : 0)).current;
-    const initialMountAnim = useRef(new Animated.Value(0)).current;
 
     const [isScrubbing, setIsScrubbing] = useState(false);
     const isScrubbingRef = useRef(false);
@@ -357,16 +356,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             setIsTrackLoading(false);
         }
     }, [isPlaying, progress.position]);
-
-    // Initial mount animation - slide up from bottom
-    useEffect(() => {
-        Animated.spring(initialMountAnim, {
-            toValue: 1,
-            useNativeDriver: true,
-            friction: 10,
-            tension: 80,
-        }).start();
-    }, []);
 
     // Track End Handling & Remote Events
     useEffect(() => {
@@ -661,14 +650,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                         toValue: 1,
                         duration: 200,
                         useNativeDriver: false,
-                    }).start(async () => {
-                        // Stop playback and cleanup before killing the player
-                        try {
-                            await TrackPlayer.pause();
-                            await TrackPlayer.reset();
-                        } catch (e) {
-                            console.warn('Error stopping playback on kill:', e);
-                        }
+                    }).start(() => {
                         if (onKillRef.current) {
                             onKillRef.current();
                         }
@@ -707,7 +689,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const lyricsTranslateY = lyricsAnim.interpolate({ inputRange: [0, 1], outputRange: [screenHeight, 0] });
     const dismissTranslateY = dismissAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 150] });
     const dismissOpacity = dismissAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.5, 0] });
-    const initialMountTranslateY = initialMountAnim.interpolate({ inputRange: [0, 1], outputRange: [200, 0] });
 
     const canSkipNext = queue && queue.length > 0 && queueIndex < queue.length - 1;
     const canSkipPrevious = queue && queue.length > 0 && queueIndex > 0;
@@ -724,9 +705,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                     borderRadius: containerRadius,
                     zIndex: zIndex,
                     elevation: zIndex > 0 ? 1 : 0,
-                    transform: [
-                        { translateY: Animated.add(hideTranslateY, initialMountTranslateY) }
-                    ],
+                    transform: [{ translateY: hideTranslateY }],
                     opacity: hideOpacity,
                 }
             ]}
@@ -748,13 +727,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             >
                 <Pressable style={styles.miniMainArea} onPress={onOpen}>
                     {miniImageUrl ? (
-                        <Image 
-                            source={{ uri: miniImageUrl }} 
-                            style={styles.miniArtwork}
-                            onError={(error) => {
-                                console.warn('[SongPlayer] Mini artwork failed to load:', error.nativeEvent?.error);
-                            }}
-                        />
+                        <Image source={{ uri: miniImageUrl }} style={styles.miniArtwork} />
                     ) : (
                         <View style={[styles.miniArtwork, { backgroundColor: '#333' }]} />
                     )}
@@ -799,14 +772,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                                 },
                             ]}>
                                 {imageUrl ? (
-                                    <Image 
-                                        source={{ uri: imageUrl }} 
-                                        style={styles.artwork}
-                                        onError={(error) => {
-                                            console.warn('[SongPlayer] Artwork failed to load:', error.nativeEvent?.error);
-                                            setLocalArtwork(null);
-                                        }}
-                                    />
+                                    <Image source={{ uri: imageUrl }} style={styles.artwork} />
                                 ) : (
                                     <View style={[styles.artwork, { backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' }]}>
                                         <Ionicons name="musical-note" size={80} color={playerColorMode === 'light' ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)'} />
