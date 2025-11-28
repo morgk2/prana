@@ -19,6 +19,9 @@ import {
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { getTrendingTracks } from '../services/DeezerService';
+
+import { getNewReleases, getSpotifyAlbumDetails, scrapeFeaturedPlaylist, getPlaylistDetails as getSpotifyPlaylistDetails } from '../services/SpotifyService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const COVER_SIZE = 180;
@@ -51,6 +54,129 @@ export default function HomeScreen({ route }) {
   const isInitializedRef = useRef(false);
   const prevIndexRef = useRef(0);
   const [viewMode, setViewMode] = useState('collection'); // 'collection' or 'discover'
+  const [discoverData, setDiscoverData] = useState({ albums: [], tracks: [], playlists: [], charts: [], featured: null });
+  const [loadingDiscover, setLoadingDiscover] = useState(false);
+
+  useEffect(() => {
+    if (viewMode === 'discover' && discoverData.albums.length === 0) {
+      fetchDiscoverData();
+    }
+  }, [viewMode]);
+
+  const fetchDiscoverData = async () => {
+    setLoadingDiscover(true);
+    try {
+      // Fetch New Releases, Trending Tracks (Deezer), Scrape Featured Playlist, and Trending Charts Playlist
+      const [albums, tracks, featuredAlbum, chartsPlaylist] = await Promise.all([
+        getNewReleases(),
+        getTrendingTracks(),
+        scrapeFeaturedPlaylist('37i9dQZF1DX0gcho56Immm'),
+        getSpotifyPlaylistDetails('3QSmfNR2XtpoADu0QPGVJK') // Trending Charts Playlist
+      ]);
+
+      // Extract albums from the charts playlist tracks
+      const chartAlbums = chartsPlaylist?.tracks?.items
+        ?.map(item => item.track?.album)
+        .filter((album, index, self) =>
+          album &&
+          self.findIndex(a => a.id === album.id) === index // Deduplicate by ID
+        ) || [];
+
+      setDiscoverData({
+        albums,
+        tracks,
+        playlists: [],
+        charts: chartAlbums,
+        featured: featuredAlbum
+      });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingDiscover(false);
+    }
+  };
+
+  const handleDiscoverAlbumPress = async (album) => {
+    try {
+      // Fetch full details including tracks from Spotify
+      const details = await getSpotifyAlbumDetails(album.id);
+
+      // Map Spotify album to app album format
+      const mappedAlbum = {
+        title: details ? details.name : album.name,
+        artist: details ? details.artists[0].name : album.artists[0].name,
+        artwork: details ? details.images[0]?.url : album.images[0]?.url,
+        key: `spotify-${album.id}`,
+        tracks: details?.tracks?.items?.map((t, index) => ({
+          name: t.name,
+          track_number: t.track_number || index + 1,
+          artist: t.artists[0].name,
+          album: details.name,
+          image: [{ '#text': details.images[0]?.url, size: 'extralarge' }],
+          uri: t.preview_url, // Preview or use Tidal
+          id: `spotify-${t.id}`
+        })) || []
+      };
+
+      navigation.navigate('LibraryAlbum', {
+        album: mappedAlbum,
+        theme,
+        onTrackPress,
+        libraryAlbums,
+        useTidalForUnowned: true // Ensure we can play it
+      });
+    } catch (e) {
+      console.error('Failed to open album', e);
+    }
+  };
+
+  const handleSpotifyPlaylistPress = async (playlist) => {
+    try {
+      const details = await getSpotifyPlaylistDetails(playlist.id);
+      if (details) {
+        const mappedPlaylist = {
+          id: `spotify-${details.id}`,
+          name: details.name,
+          image: details.images[0]?.url,
+          description: details.description || `By ${details.owner?.display_name}`,
+          tracks: details.tracks?.items?.map(item => {
+            const t = item.track;
+            if (!t) return null;
+            return {
+              name: t.name,
+              artist: t.artists[0].name,
+              album: t.album.name,
+              image: [{ '#text': t.album.images[0]?.url, size: 'extralarge' }],
+              uri: t.preview_url,
+              id: `spotify-${t.id}`
+            };
+          }).filter(Boolean) || []
+        };
+
+        navigation.navigate('PlaylistPage', {
+          playlist: mappedPlaylist,
+          theme,
+          onTrackPress,
+          useTidalForUnowned: true
+        });
+      }
+    } catch (e) {
+      console.error('Failed to open playlist', e);
+    }
+  };
+
+  const handleDiscoverTrackPress = (track) => {
+    const mappedTrack = {
+      name: track.title,
+      artist: track.artist.name,
+      album: track.album.title,
+      image: [{ '#text': track.album.cover_xl, size: 'extralarge' }],
+      uri: track.preview,
+      id: `deezer-${track.id}`
+    };
+    // Play single track
+    onTrackPress(mappedTrack, [mappedTrack], 0);
+  };
 
   useEffect(() => {
     if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -247,11 +373,27 @@ export default function HomeScreen({ route }) {
         scrollEnabled={scrollEnabled}
       >
         {/* Header */}
-        <View style={styles.header}>
-          <Image
-            source={require('../../assets/expandedLogo.png')}
-            style={{ width: 300, height: 75, resizeMode: 'contain', marginLeft: -90, tintColor: theme.primaryText }}
-          />
+        <View style={[styles.header, viewMode === 'discover' && { marginBottom: 0 }]}>
+          <View>
+            <Image
+              source={require('../../assets/expandedLogo.png')}
+              style={{ width: 300, height: 75, resizeMode: 'contain', marginLeft: -90, tintColor: theme.primaryText }}
+            />
+          </View>
+
+          {viewMode === 'discover' && (
+            <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center', justifyContent: 'center', top: 45, pointerEvents: 'none' }}>
+              <Text style={{
+                color: theme.primaryText,
+                fontSize: 22,
+                fontWeight: '800',
+                opacity: 0.9,
+                textAlign: 'center',
+              }}>
+                Cph+
+              </Text>
+            </View>
+          )}
 
           <TouchableOpacity
             onPress={() => switchView(viewMode === 'collection' ? 'discover' : 'collection')}
@@ -434,12 +576,115 @@ export default function HomeScreen({ route }) {
               </Pressable>
             </View>
           )) : (
-          <View style={styles.emptyState}>
-            <Ionicons name="compass-outline" size={80} color={theme.secondaryText} style={{ opacity: 0.3, marginBottom: 16 }} />
-            <Text style={[styles.emptyTitle, { color: theme.primaryText }]}>Discover</Text>
-            <Text style={[styles.emptySubtitle, { color: theme.secondaryText }]}>
-              Explore new music and artists coming soon.
-            </Text>
+          <View style={{ flex: 1, paddingBottom: 100 }}>
+            {loadingDiscover ? (
+              <View style={{ height: 300, justifyContent: 'center', alignItems: 'center' }}>
+                <ActivityIndicator size="large" color={theme.primaryText} />
+              </View>
+            ) : (
+              <>
+                <>
+                  {/* Featured Album */}
+                  {discoverData.featured && (
+                    <Pressable
+                      style={styles.featuredContainer}
+                      onPress={() => handleDiscoverAlbumPress(discoverData.featured)}
+                    >
+                      <Image source={{ uri: discoverData.featured.images[0]?.url }} style={styles.featuredImage} blurRadius={10} />
+                      <Image source={{ uri: discoverData.featured.images[0]?.url }} style={styles.featuredImageForeground} />
+
+                      {/* Top Gradient for blending with header */}
+                      <LinearGradient
+                        colors={[theme.background, 'transparent']}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 300 }}
+                      />
+
+                      {/* Bottom Gradient for text readability/blending */}
+                      <LinearGradient
+                        colors={['transparent', theme.background]}
+                        style={styles.featuredGradient}
+                      />
+
+                      <View style={[styles.featuredContent, { paddingBottom: 10 }]}>
+                        <Text style={[styles.featuredTitle, { color: theme.primaryText }]} numberOfLines={2}>
+                          {discoverData.featured.name}
+                        </Text>
+                        <Text style={[styles.featuredArtist, { color: theme.secondaryText }]} numberOfLines={1}>
+                          {discoverData.featured.artists[0].name}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  )}
+
+                  {/* New Releases (Spotify) */}
+                  <View style={styles.carouselSection}>
+                    <Text style={[styles.sectionTitle, { color: theme.primaryText, paddingHorizontal: 20 }]}>
+                      New Releases
+                    </Text>
+                    <FlatList
+                      horizontal
+                      data={discoverData.albums}
+                      renderItem={({ item }) => (
+                        <Pressable style={styles.carouselItem} onPress={() => handleDiscoverAlbumPress(item)}>
+                          <Image source={{ uri: item.images[0]?.url }} style={styles.carouselImage} />
+                          <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.name}</Text>
+                          <Text style={[styles.carouselItemText, { color: theme.secondaryText, fontSize: 12, marginTop: 2 }]} numberOfLines={1}>{item.artists[0].name}</Text>
+                        </Pressable>
+                      )}
+                      keyExtractor={item => item.id}
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ paddingLeft: 20, paddingRight: 5 }}
+                    />
+                  </View>
+
+                  {/* Trending Charts (Spotify Playlist Albums) */}
+                  <View style={styles.carouselSection}>
+                    <Text style={[styles.sectionTitle, { color: theme.primaryText, paddingHorizontal: 20 }]}>
+                      Trending Charts
+                    </Text>
+                    <FlatList
+                      horizontal
+                      data={discoverData.charts}
+                      renderItem={({ item }) => (
+                        <Pressable style={styles.carouselItem} onPress={() => handleDiscoverAlbumPress(item)}>
+                          <Image source={{ uri: item.images[0]?.url }} style={styles.carouselImage} />
+                          <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.name}</Text>
+                          <Text style={[styles.carouselItemText, { color: theme.secondaryText, fontSize: 12, marginTop: 2 }]} numberOfLines={1}>{item.artists[0].name}</Text>
+                        </Pressable>
+                      )}
+                      keyExtractor={item => item.id}
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ paddingLeft: 20, paddingRight: 5 }}
+                    />
+                  </View>
+
+
+
+                  {/* Top Songs (Deezer Global) */}
+                  <View style={[styles.carouselSection, { marginBottom: 40 }]}>
+                    <Text style={[styles.sectionTitle, { color: theme.primaryText, paddingHorizontal: 20 }]}>
+                      Top Songs
+                    </Text>
+                    <FlatList
+                      horizontal
+                      data={discoverData.tracks}
+                      renderItem={({ item }) => (
+                        <Pressable style={styles.carouselItem} onPress={() => handleDiscoverTrackPress(item)}>
+                          <Image source={{ uri: item.album.cover_xl }} style={styles.carouselImage} />
+                          <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.title}</Text>
+                          <Text style={[styles.carouselItemText, { color: theme.secondaryText, fontSize: 12, marginTop: 2 }]} numberOfLines={1}>{item.artist.name}</Text>
+                        </Pressable>
+                      )}
+                      keyExtractor={item => item.id.toString()}
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ paddingLeft: 20, paddingRight: 5 }}
+                    />
+                  </View>
+                </>
+
+
+              </>
+            )}
           </View>
         )}
       </ScrollView>
@@ -653,5 +898,79 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 60, // for circle shape
     marginBottom: 10,
+  },
+  featuredContainer: {
+    width: '100%',
+    height: 350,
+    marginBottom: 20,
+    position: 'relative',
+    justifyContent: 'flex-end',
+  },
+  featuredImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  featuredImageForeground: {
+    position: 'absolute',
+    top: 40,
+    alignSelf: 'center',
+    width: 200,
+    height: 200,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 10,
+    },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 15,
+  },
+  featuredGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  featuredContent: {
+    padding: 20,
+    alignItems: 'center',
+    paddingBottom: 40,
+  },
+  featuredTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 10,
+  },
+  featuredArtist: {
+    fontSize: 18,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 16,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 10,
+  },
+  cphButton: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 100,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  cphButtonText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
