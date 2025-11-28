@@ -748,7 +748,13 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             >
                 <Pressable style={styles.miniMainArea} onPress={onOpen}>
                     {miniImageUrl ? (
-                        <Image source={{ uri: miniImageUrl }} style={styles.miniArtwork} />
+                        <Image 
+                            source={{ uri: miniImageUrl }} 
+                            style={styles.miniArtwork}
+                            onError={(error) => {
+                                console.warn('[SongPlayer] Mini artwork failed to load:', error.nativeEvent?.error);
+                            }}
+                        />
                     ) : (
                         <View style={[styles.miniArtwork, { backgroundColor: '#333' }]} />
                     )}
@@ -793,7 +799,14 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                                 },
                             ]}>
                                 {imageUrl ? (
-                                    <Image source={{ uri: imageUrl }} style={styles.artwork} />
+                                    <Image 
+                                        source={{ uri: imageUrl }} 
+                                        style={styles.artwork}
+                                        onError={(error) => {
+                                            console.warn('[SongPlayer] Artwork failed to load:', error.nativeEvent?.error);
+                                            setLocalArtwork(null);
+                                        }}
+                                    />
                                 ) : (
                                     <View style={[styles.artwork, { backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' }]}>
                                         <Ionicons name="musical-note" size={80} color={playerColorMode === 'light' ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)'} />
