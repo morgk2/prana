@@ -2,14 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, FlatList, Pressable, Image, ActivityIndicator, StyleSheet, Switch, Alert, Modal, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { ModuleManager } from '../services/ModuleManager';
 import { getArtworkWithFallback } from '../utils/artworkFallback';
-import { TIDAL_MODULE_CODE } from '../services/defaultTidalModule';
-import { YTDL_MODULE_CODE } from '../services/ytdlModule';
-import { SPARTDL_MODULE_CODE } from '../services/spartdlModule';
-import { SUBSONIC_MODULE_CODE } from '../services/subsonicModule';
-import { HIFI_MORGK_MODULE_CODE } from '../services/hifiMorgkModule';
 
 export default function ModulesPage({ route, navigation }) {
   const { theme, openTrackPlayer, useTidalForUnowned, toggleTidalForUnowned } = route.params;
@@ -38,13 +33,6 @@ export default function ModulesPage({ route, navigation }) {
   // Installation loading state
   const [installingModule, setInstallingModule] = useState(null);
 
-  // Subsonic configuration state
-  const [showSubsonicConfig, setShowSubsonicConfig] = useState(false);
-  const [subsonicServer, setSubsonicServer] = useState('');
-  const [subsonicUsername, setSubsonicUsername] = useState('');
-  const [subsonicPassword, setSubsonicPassword] = useState('');
-  const [testingConnection, setTestingConnection] = useState(false);
-
   useEffect(() => {
     loadModules();
   }, []);
@@ -65,15 +53,15 @@ export default function ModulesPage({ route, navigation }) {
   const handlePickModuleFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: 'application/javascript',
+        type: '*/*',
         copyToCacheDirectory: true
       });
 
       if (result.canceled) return;
 
       const file = result.assets[0];
-      if (!file.name.endsWith('.js')) {
-        Alert.alert('Error', 'Please select a .js file');
+      if (!file.name.endsWith('.js') && !file.name.endsWith('.8spine')) {
+        Alert.alert('Error', 'Please select a .js or .8spine file');
         return;
       }
 
@@ -90,29 +78,6 @@ export default function ModulesPage({ route, navigation }) {
     }
   };
 
-  const handleInstallDefaultModule = async (module, openAfterInstall = false) => {
-    try {
-      setInstallingModule(module.id);
-      await ModuleManager.installModule(module.moduleCode);
-      await loadModules(); // Wait for modules to reload
-
-      Alert.alert('Success', 'Module installed successfully');
-
-      if (openAfterInstall) {
-        // Find the installed module and open it
-        const installedModules = ModuleManager.getAllModules();
-        const installedModule = installedModules.find(m => m.id === module.id);
-        if (installedModule) {
-          setActiveModule(installedModule);
-          setCurrentView('module_details');
-        }
-      }
-    } catch (err) {
-      Alert.alert('Error', 'Failed to install module: ' + err.message);
-    } finally {
-      setInstallingModule(null);
-    }
-  };
 
   const handleInstallModule = async (code) => {
     try {
@@ -135,70 +100,6 @@ export default function ModulesPage({ route, navigation }) {
       }
     } catch (err) {
       Alert.alert('Error', 'Failed to uninstall module');
-    }
-  };
-
-  const handleTestSubsonicConnection = async () => {
-    if (!subsonicServer || !subsonicUsername || !subsonicPassword) {
-      Alert.alert('Missing Information', 'Please fill in all fields');
-      return;
-    }
-
-    setTestingConnection(true);
-    try {
-      // Create a temporary module instance to test connection
-      const testCode = SUBSONIC_MODULE_CODE + `\nconst module = arguments[0];\nmodule.configure('${subsonicServer}', '${subsonicUsername}', '${subsonicPassword}');\nreturn module.ping();`;
-      const testFunc = new Function(testCode);
-      const module = testFunc();
-
-      const isConnected = await module;
-
-      if (isConnected) {
-        Alert.alert('Success!', 'Connection to Subsonic server successful');
-      } else {
-        Alert.alert('Connection Failed', 'Could not connect to Subsonic server');
-      }
-    } catch (error) {
-      Alert.alert('Connection Failed', error.message || 'Could not connect to Subsonic server');
-    } finally {
-      setTestingConnection(false);
-    }
-  };
-
-  const handleInstallSubsonic = async () => {
-    if (!subsonicServer || !subsonicUsername || !subsonicPassword) {
-      Alert.alert('Missing Information', 'Please fill in all fields');
-      return;
-    }
-
-    try {
-      setInstallingModule('subsonic');
-
-      // Inject configuration into the module code
-      const configuredCode = SUBSONIC_MODULE_CODE.replace(
-        "let SUBSONIC_SERVER_URL = '';",
-        `let SUBSONIC_SERVER_URL = '${subsonicServer}';`
-      ).replace(
-        "let SUBSONIC_USERNAME = '';",
-        `let SUBSONIC_USERNAME = '${subsonicUsername}';`
-      ).replace(
-        "let SUBSONIC_PASSWORD = '';",
-        `let SUBSONIC_PASSWORD = '${subsonicPassword}';`
-      );
-
-      await ModuleManager.installModule(configuredCode);
-      await loadModules();
-
-      setShowSubsonicConfig(false);
-      setSubsonicServer('');
-      setSubsonicUsername('');
-      setSubsonicPassword('');
-
-      Alert.alert('Success', 'Subsonic module installed successfully');
-    } catch (err) {
-      Alert.alert('Error', 'Failed to install module: ' + err.message);
-    } finally {
-      setInstallingModule(null);
     }
   };
 
@@ -314,88 +215,6 @@ export default function ModulesPage({ route, navigation }) {
     );
   };
 
-  const renderDefaultModuleCard = (module) => (
-    <Pressable
-      key={module.id}
-      style={[styles.moduleCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-      onPress={() => {
-        if (installingModule === module.id) return;
-        if (module.requiresConfig && module.id === 'subsonic') {
-          setShowSubsonicConfig(true);
-        } else {
-          handleInstallDefaultModule(module, false);
-        }
-      }}
-    >
-      <View style={styles.moduleHeaderRow}>
-        <View style={[styles.moduleIconContainer, { backgroundColor: theme.inputBackground }]}>
-          <Ionicons name="cube-outline" size={32} color={theme.accent} />
-        </View>
-        <View style={styles.moduleInfo}>
-          <Text style={[styles.moduleName, { color: theme.primaryText }]}>{module.name}</Text>
-          <Text style={[styles.moduleAuthor, { color: theme.secondaryText }]}>v{module.version}</Text>
-        </View>
-      </View>
-
-      <Text style={[styles.moduleDescription, { color: theme.secondaryText }]}>
-        Default module ready to install.
-      </Text>
-
-      {/* Module Labels */}
-      {module.labels && module.labels.length > 0 && (
-        <View style={styles.moduleLabels}>
-          {module.labels.map((label, index) => (
-            <View key={index} style={[styles.labelTag, { backgroundColor: theme.accent + '20', borderColor: theme.accent }]}>
-              <Text style={[styles.labelText, { color: theme.accent }]}>{label}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-
-      <View style={styles.moduleActions}>
-        {module.requiresConfig && module.id === 'subsonic' ? (
-          <Pressable
-            style={[styles.actionButton, { backgroundColor: theme.accent, flex: 2 }]}
-            onPress={() => setShowSubsonicConfig(true)}
-          >
-            <Ionicons name="settings-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
-            <Text style={[styles.actionButtonText, { color: '#fff' }]}>Configure & Install</Text>
-          </Pressable>
-        ) : (
-          <>
-            <Pressable
-              style={[styles.actionButton, { backgroundColor: installingModule === module.id ? theme.border : theme.accent }]}
-              onPress={() => {
-                if (installingModule === module.id) return;
-                handleInstallDefaultModule(module, false);
-              }}
-              disabled={installingModule === module.id}
-            >
-              {installingModule === module.id ? (
-                <ActivityIndicator size="small" color={theme.accent} />
-              ) : (
-                <Text style={[styles.actionButtonText, { color: '#fff' }]}>Install</Text>
-              )}
-            </Pressable>
-            <Pressable
-              style={[styles.actionButton, styles.uninstallButton, { backgroundColor: installingModule === module.id ? theme.border : theme.border }]}
-              onPress={() => {
-                if (installingModule === module.id) return;
-                handleInstallDefaultModule(module, true);
-              }}
-              disabled={installingModule === module.id}
-            >
-              {installingModule === module.id ? (
-                <ActivityIndicator size="small" color={theme.secondaryText} />
-              ) : (
-                <Text style={[styles.actionButtonText, { color: theme.primaryText }]}>Install & Open</Text>
-              )}
-            </Pressable>
-          </>
-        )}
-      </View>
-    </Pressable>
-  );
 
   const renderModuleCard = (module) => (
     <Pressable
@@ -448,7 +267,7 @@ export default function ModulesPage({ route, navigation }) {
             setCurrentView('module_details');
           }}
         >
-          <Text style={[styles.actionButtonText, { color: '#fff' }]}>Open</Text>
+          <Text style={[styles.actionButtonText, { color: theme.background }]}>Open</Text>
         </Pressable>
       </View>
     </Pressable>
@@ -502,53 +321,23 @@ export default function ModulesPage({ route, navigation }) {
           {modulesList.length > 0 ? (
             modulesList.map(renderModuleCard)
           ) : (
-            <View style={styles.modulesListContainer}>
-              {/* Default Module Cards */}
-              {renderDefaultModuleCard({
-                id: 'hifi-morgk',
-                name: 'HIFI MORGK',
-                version: '1.0.0',
-                labels: ['PERFECT', 'LOSSLESS', 'STREAM & DOWNLOAD'],
-                moduleCode: HIFI_MORGK_MODULE_CODE,
-                installed: false
-              })}
-
-              {renderDefaultModuleCard({
-                id: 'tidal',
-                name: 'Tidal Music',
-                version: '1.0.0',
-                labels: ['LOSSLESS quality', 'Great for downloading'],
-                moduleCode: TIDAL_MODULE_CODE,
-                installed: false
-              })}
-
-              {renderDefaultModuleCard({
-                id: 'ytdl',
-                name: 'YTDL (Spotify Search)',
-                version: '1.6.0',
-                labels: ['Fast', 'Perfect for streaming'],
-                moduleCode: YTDL_MODULE_CODE,
-                installed: false
-              })}
-
-              {renderDefaultModuleCard({
-                id: 'spartdl',
-                name: 'SpartDL (Spotify Downloads)',
-                version: '1.2.1',
-                labels: ["I'm hosting it on a potato", "Great for downloading"],
-                moduleCode: SPARTDL_MODULE_CODE,
-                installed: false
-              })}
-
-              {renderDefaultModuleCard({
-                id: 'subsonic',
-                name: 'Subsonic Server',
-                version: '1.0.0',
-                labels: ['Self-hosted', 'LOSSLESS quality', 'Local library'],
-                moduleCode: SUBSONIC_MODULE_CODE,
-                installed: false,
-                requiresConfig: true
-              })}
+            <View style={styles.emptyModulesContainer}>
+              <View style={[styles.emptyIconContainer, { backgroundColor: theme.inputBackground }]}>
+                <Ionicons name="cube-outline" size={64} color={theme.secondaryText} style={{ opacity: 0.5 }} />
+              </View>
+              <Text style={[styles.emptyModulesTitle, { color: theme.primaryText }]}>
+                No Modules Installed
+              </Text>
+              <Text style={[styles.emptyModulesDescription, { color: theme.secondaryText }]}>
+                Install a module to stream and download music from external sources
+              </Text>
+              <Pressable
+                style={[styles.emptyInstallButton, { backgroundColor: theme.accent }]}
+                onPress={() => setShowDisclaimerModal(true)}
+              >
+                <Ionicons name="add-circle-outline" size={24} color={theme.background} />
+                <Text style={[styles.emptyInstallButtonText, { color: theme.background }]}>Install Your First Module</Text>
+              </Pressable>
             </View>
           )}
 
@@ -650,9 +439,9 @@ export default function ModulesPage({ route, navigation }) {
               disabled={loading || !searchQuery.trim()}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={theme.background} />
               ) : (
-                <Text style={styles.searchButtonText}>Search</Text>
+                <Text style={[styles.searchButtonText, { color: theme.background }]}>Search</Text>
               )}
             </Pressable>
           </View>
@@ -730,66 +519,61 @@ export default function ModulesPage({ route, navigation }) {
               <Text style={[styles.selectFileText, { color: theme.accent }]}>Select a Module File</Text>
             </Pressable>
 
-            {/* Bundled Modules Section */}
-            <View style={styles.bundledSection}>
-              <Text style={[styles.bundledTitle, { color: theme.primaryText }]}>Morg's Bundled Modules</Text>
-
-              <Pressable
-                style={[styles.bundledModuleCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => handleInstallModule(HIFI_MORGK_MODULE_CODE)}
-              >
-                <View style={[styles.bundledIconContainer, { backgroundColor: theme.accent + '15' }]}>
-                  <Ionicons name="server" size={32} color={theme.accent} />
+            {/* Installation Instructions */}
+            <View style={styles.instructionsSection}>
+              <Text style={[styles.instructionsTitle, { color: theme.primaryText }]}>How to Install a Module</Text>
+              <View style={styles.instructionStep}>
+                <View style={[styles.stepNumber, { backgroundColor: theme.accent }]}>
+                  <Text style={[styles.stepNumberText, { color: theme.background }]}>1</Text>
                 </View>
-                <View style={styles.bundledModuleInfo}>
-                  <Text style={[styles.bundledModuleName, { color: theme.primaryText }]}>HIFI MORGK</Text>
-                  <Text style={[styles.bundledModuleDesc, { color: theme.secondaryText }]}>PERFECT • LOSSLESS • STREAM & DOWNLOAD</Text>
+                <Text style={[styles.stepText, { color: theme.secondaryText }]}>
+                  Create or have someone create a .8spine module for you
+                </Text>
+              </View>
+              <View style={styles.instructionStep}>
+                <View style={[styles.stepNumber, { backgroundColor: theme.accent }]}>
+                  <Text style={[styles.stepNumberText, { color: theme.background }]}>2</Text>
                 </View>
-                <Ionicons name="download-outline" size={24} color={theme.accent} />
-              </Pressable>
-
-              <Pressable
-                style={[styles.bundledModuleCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => handleInstallModule(TIDAL_MODULE_CODE)}
-              >
-                <View style={[styles.bundledIconContainer, { backgroundColor: theme.accent + '15' }]}>
-                  <Ionicons name="musical-notes" size={32} color={theme.accent} />
+                <Text style={[styles.stepText, { color: theme.secondaryText }]}>
+                  Click "Select a Module File" above to browse for the file
+                </Text>
+              </View>
+              <View style={styles.instructionStep}>
+                <View style={[styles.stepNumber, { backgroundColor: theme.accent }]}>
+                  <Text style={[styles.stepNumberText, { color: theme.background }]}>3</Text>
                 </View>
-                <View style={styles.bundledModuleInfo}>
-                  <Text style={[styles.bundledModuleName, { color: theme.primaryText }]}>Tidal Music</Text>
-                  <Text style={[styles.bundledModuleDesc, { color: theme.secondaryText }]}>LOSSLESS quality • Great for downloading</Text>
-                </View>
-                <Ionicons name="download-outline" size={24} color={theme.accent} />
-              </Pressable>
-
-              <Pressable
-                style={[styles.bundledModuleCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => handleInstallModule(YTDL_MODULE_CODE)}
-              >
-                <View style={[styles.bundledIconContainer, { backgroundColor: theme.accent + '15' }]}>
-                  <Ionicons name="logo-youtube" size={32} color={theme.accent} />
-                </View>
-                <View style={styles.bundledModuleInfo}>
-                  <Text style={[styles.bundledModuleName, { color: theme.primaryText }]}>YTDL (Spotify Search)</Text>
-                  <Text style={[styles.bundledModuleDesc, { color: theme.secondaryText }]}>Fast • Perfect for streaming</Text>
-                </View>
-                <Ionicons name="download-outline" size={24} color={theme.accent} />
-              </Pressable>
-
-              <Pressable
-                style={[styles.bundledModuleCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => handleInstallModule(SPARTDL_MODULE_CODE)}
-              >
-                <View style={[styles.bundledIconContainer, { backgroundColor: theme.accent + '15' }]}>
-                  <Ionicons name="cloud-download-outline" size={32} color={theme.accent} />
-                </View>
-                <View style={styles.bundledModuleInfo}>
-                  <Text style={[styles.bundledModuleName, { color: theme.primaryText }]}>SpartDL (Spotify Downloads)</Text>
-                  <Text style={[styles.bundledModuleDesc, { color: theme.secondaryText }]}>I'm hosting it on a potato • Great for downloading</Text>
-                </View>
-                <Ionicons name="download-outline" size={24} color={theme.accent} />
-              </Pressable>
+                <Text style={[styles.stepText, { color: theme.secondaryText }]}>
+                  Review the code (if you know JavaScript) and click Install
+                </Text>
+              </View>
             </View>
+
+            <TextInput
+              style={[styles.codeInput, {
+                backgroundColor: theme.inputBackground,
+                color: theme.primaryText,
+                borderWidth: 1,
+                borderColor: theme.border,
+              }]}
+              placeholder="Paste module code here or select a file above"
+              placeholderTextColor={theme.secondaryText}
+              value={installCode}
+              onChangeText={setInstallCode}
+              multiline
+              numberOfLines={10}
+            />
+
+            <Pressable
+              style={[styles.modalInstallButton, {
+                backgroundColor: installCode.trim() ? theme.accent : theme.border
+              }]}
+              onPress={() => handleInstallModule(installCode)}
+              disabled={!installCode.trim()}
+            >
+              <Text style={[styles.modalInstallButtonText, {
+                color: installCode.trim() ? theme.background : theme.secondaryText
+              }]}>Install Module</Text>
+            </Pressable>
 
             <View style={{ height: 40 }} />
           </ScrollView>
@@ -888,7 +672,7 @@ export default function ModulesPage({ route, navigation }) {
             <Text style={[styles.helpSectionTitle, { color: theme.primaryText }]}>Installing a Module</Text>
             <Text style={[styles.helpText, { color: theme.secondaryText }]}>
               1. Tap the "Install Module" button on the Modules page.{"\n"}
-              2. Tap "Select .js File" to pick a module file from your device.{"\n"}
+              2. Tap "Select a Module File" to pick a .js or .8spine file from your device.{"\n"}
               3. Alternatively, you can paste the module code directly into the text area.{"\n"}
               4. Tap "Install" to add the module to your library.
             </Text>
@@ -898,140 +682,6 @@ export default function ModulesPage({ route, navigation }) {
         </View>
       </Modal>
 
-      {/* Subsonic Configuration Modal */}
-      <Modal
-        visible={showSubsonicConfig}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowSubsonicConfig(false)}
-      >
-        <View style={[styles.modalContainer, { backgroundColor: theme.background }]}>
-          <View style={styles.modalHeader}>
-            <Pressable onPress={() => setShowSubsonicConfig(false)}>
-              <Text style={{ color: theme.secondaryText, fontSize: 16 }}>Cancel</Text>
-            </Pressable>
-            <Text style={[styles.modalTitle, { color: theme.primaryText, fontSize: 18 }]}>Configure Subsonic</Text>
-            <View style={{ width: 60 }} />
-          </View>
-
-          <ScrollView style={styles.modalContent}>
-            {/* Server Icon */}
-            <View style={styles.illustrationContainer}>
-              <View style={[styles.serverIcon, { backgroundColor: theme.accent + '20' }]}>
-                <Ionicons name="server-outline" size={48} color={theme.accent} />
-              </View>
-            </View>
-
-            <Text style={[styles.helpText, { color: theme.secondaryText, marginBottom: 24, textAlign: 'center' }]}>
-              Connect to your personal Subsonic music server
-            </Text>
-
-            {/* Server URL Input */}
-            <View style={{ marginBottom: 16 }}>
-              <Text style={[styles.modalLabel, { color: theme.primaryText, marginBottom: 8 }]}>
-                Server URL
-              </Text>
-              <TextInput
-                style={[styles.codeInput, {
-                  backgroundColor: theme.inputBackground,
-                  color: theme.primaryText,
-                  height: 48,
-                  fontFamily: undefined
-                }]}
-                placeholder="https://music.example.com"
-                placeholderTextColor={theme.secondaryText}
-                value={subsonicServer}
-                onChangeText={setSubsonicServer}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="url"
-              />
-            </View>
-
-            {/* Username Input */}
-            <View style={{ marginBottom: 16 }}>
-              <Text style={[styles.modalLabel, { color: theme.primaryText, marginBottom: 8 }]}>
-                Username
-              </Text>
-              <TextInput
-                style={[styles.codeInput, {
-                  backgroundColor: theme.inputBackground,
-                  color: theme.primaryText,
-                  height: 48,
-                  fontFamily: undefined
-                }]}
-                placeholder="username"
-                placeholderTextColor={theme.secondaryText}
-                value={subsonicUsername}
-                onChangeText={setSubsonicUsername}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-
-            {/* Password Input */}
-            <View style={{ marginBottom: 24 }}>
-              <Text style={[styles.modalLabel, { color: theme.primaryText, marginBottom: 8 }]}>
-                Password
-              </Text>
-              <TextInput
-                style={[styles.codeInput, {
-                  backgroundColor: theme.inputBackground,
-                  color: theme.primaryText,
-                  height: 48,
-                  fontFamily: undefined
-                }]}
-                placeholder="password"
-                placeholderTextColor={theme.secondaryText}
-                value={subsonicPassword}
-                onChangeText={setSubsonicPassword}
-                autoCapitalize="none"
-                autoCorrect={false}
-                secureTextEntry
-              />
-            </View>
-
-            {/* Test Connection Button */}
-            <Pressable
-              style={[styles.modalInstallButton, {
-                backgroundColor: theme.border,
-                marginBottom: 12
-              }]}
-              onPress={handleTestSubsonicConnection}
-              disabled={testingConnection}
-            >
-              {testingConnection ? (
-                <ActivityIndicator color={theme.accent} />
-              ) : (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Ionicons name="checkmark-circle-outline" size={20} color={theme.primaryText} />
-                  <Text style={[styles.modalInstallButtonText, { color: theme.primaryText }]}>
-                    Test Connection
-                  </Text>
-                </View>
-              )}
-            </Pressable>
-
-            {/* Install Button */}
-            <Pressable
-              style={[styles.modalInstallButton, { backgroundColor: theme.accent }]}
-              onPress={handleInstallSubsonic}
-              disabled={installingModule === 'subsonic'}
-            >
-              {installingModule === 'subsonic' ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Ionicons name="download-outline" size={20} color="#fff" />
-                  <Text style={styles.modalInstallButtonText}>Install Module</Text>
-                </View>
-              )}
-            </Pressable>
-
-            <View style={{ height: 50 }} />
-          </ScrollView>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -1139,42 +789,76 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
-  bundledSection: {
-    gap: 12,
-  },
-  bundledTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  bundledModuleCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 16,
-    marginBottom: 12,
-  },
-  bundledIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 12,
+  emptyModulesContainer: {
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 32,
+    gap: 16,
   },
-  bundledModuleInfo: {
-    flex: 1,
-    gap: 4,
+  emptyIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
   },
-  bundledModuleName: {
+  emptyModulesTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  emptyModulesDescription: {
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  emptyInstallButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 24,
+    gap: 8,
+    marginTop: 8,
+  },
+  emptyInstallButtonText: {
     fontSize: 16,
     fontWeight: '600',
   },
-  bundledModuleDesc: {
-    fontSize: 13,
-    lineHeight: 18,
+  instructionsSection: {
+    gap: 16,
+    paddingTop: 16,
+  },
+  instructionsTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  instructionStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingVertical: 8,
+  },
+  stepNumber: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumberText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  stepText: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 20,
   },
   moduleDetailsCard: {
     margin: 16,
@@ -1257,7 +941,7 @@ const styles = StyleSheet.create({
   searchButton: {
     borderRadius: 12, paddingVertical: 12, alignItems: 'center', justifyContent: 'center',
   },
-  searchButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  searchButtonText: { fontSize: 16, fontWeight: '600' },
   errorContainer: {
     flexDirection: 'row', alignItems: 'center', marginHorizontal: 16,
     marginBottom: 16, padding: 12, borderRadius: 8, gap: 8,
@@ -1296,7 +980,7 @@ const styles = StyleSheet.create({
     borderRadius: 12, paddingVertical: 16, alignItems: 'center',
     marginTop: 16,
   },
-  modalInstallButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  modalInstallButtonText: { fontSize: 16, fontWeight: '600' },
   divider: { height: 1, backgroundColor: '#ccc', marginVertical: 20, opacity: 0.2 },
   defaultModulesRow: { flexDirection: 'row', paddingBottom: 20 },
   helpSectionTitle: { fontSize: 18, fontWeight: '600', marginTop: 16, marginBottom: 8 },

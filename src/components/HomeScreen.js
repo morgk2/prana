@@ -123,7 +123,8 @@ export default function HomeScreen({ route }) {
         theme,
         onTrackPress,
         libraryAlbums,
-        useTidalForUnowned: true // Ensure we can play it
+        useTidalForUnowned: true, // Ensure we can play it
+        openArtistByName: openArtistPage
       });
     } catch (e) {
       console.error('Failed to open album', e);
@@ -283,6 +284,7 @@ export default function HomeScreen({ route }) {
               theme,
               onTrackPress,
               libraryAlbums,
+              openArtistByName: openArtistPage
             });
           }
         }}
@@ -297,10 +299,10 @@ export default function HomeScreen({ route }) {
           )}
           <View style={styles.recentCardText}>
             <Text style={[styles.recentCardTitle, { color: theme.primaryText }]} numberOfLines={1}>
-              {album.title}
+              {album.title || 'Unknown Album'}
             </Text>
             <Text style={[styles.recentCardArtist, { color: theme.secondaryText }]} numberOfLines={1}>
-              {album.artist}
+              {album.artist || 'Unknown Artist'}
             </Text>
           </View>
         </View>
@@ -319,6 +321,7 @@ export default function HomeScreen({ route }) {
           theme,
           onTrackPress,
           libraryAlbums,
+          openArtistByName: openArtistPage
         });
       }
     }}>
@@ -329,7 +332,7 @@ export default function HomeScreen({ route }) {
           <Ionicons name="disc-outline" size={40} color={theme.secondaryText} />
         </View>
       )}
-      <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.title}</Text>
+      <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.title || 'Unknown Album'}</Text>
     </Pressable>
   );
 
@@ -342,7 +345,7 @@ export default function HomeScreen({ route }) {
           <Ionicons name="musical-notes" size={40} color={theme.secondaryText} />
         </View>
       )}
-      <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.name}</Text>
+      <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.name || 'Unknown Playlist'}</Text>
     </Pressable>
   );
 
@@ -358,7 +361,7 @@ export default function HomeScreen({ route }) {
           </View>
         )}
         <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>
-          {item.name}
+          {item.name || 'Unknown Artist'}
         </Text>
       </Pressable>
     );
@@ -413,12 +416,12 @@ export default function HomeScreen({ route }) {
             {viewMode === 'collection' ? (
               <>
                 <Ionicons name="compass" size={24} color={theme.primaryText} />
-                <Text style={[styles.switcherText, { color: theme.primaryText }]}>Discover</Text>
+                <Text style={[styles.switcherText, { color: theme.primaryText, marginLeft: 8 }]}>Discover</Text>
               </>
             ) : (
               <>
                 <Ionicons name="disc" size={24} color={theme.primaryText} />
-                <Text style={[styles.switcherText, { color: theme.primaryText }]}>Collection</Text>
+                <Text style={[styles.switcherText, { color: theme.primaryText, marginLeft: 8 }]}>Collection</Text>
               </>
             )}
           </TouchableOpacity>
@@ -449,7 +452,7 @@ export default function HomeScreen({ route }) {
                         onPress={() => {
                           if (isActive) {
                             if (navigation) {
-                              navigation.navigate('LibraryAlbum', { album, theme, onTrackPress, libraryAlbums });
+                              navigation.navigate('LibraryAlbum', { album, theme, onTrackPress, libraryAlbums, openArtistByName: openArtistPage });
                             }
                           } else {
                             jumpTo(index);
@@ -484,10 +487,10 @@ export default function HomeScreen({ route }) {
               {/* Album Info */}
               <View style={styles.infoContainer}>
                 <Text style={[styles.albumTitle, { color: theme.primaryText }]} numberOfLines={1}>
-                  {libraryAlbums[currentIndex]?.title}
+                  {libraryAlbums[currentIndex]?.title || 'Unknown Album'}
                 </Text>
                 <Text style={[styles.albumArtist, { color: theme.secondaryText }]} numberOfLines={1}>
-                  {libraryAlbums[currentIndex]?.artist}
+                  {libraryAlbums[currentIndex]?.artist || 'Unknown Artist'}
                 </Text>
               </View>
 
@@ -580,7 +583,7 @@ export default function HomeScreen({ route }) {
                 onPress={pickLocalAudio}
               >
                 <Ionicons name="add" size={24} color={theme.background} />
-                <Text style={[styles.importButtonText, { color: theme.background }]}>
+                <Text style={[styles.importButtonText, { color: theme.background, marginLeft: 8 }]}>
                   Import Song
                 </Text>
               </Pressable>
@@ -617,10 +620,10 @@ export default function HomeScreen({ route }) {
 
                       <View style={[styles.featuredContent, { paddingBottom: 10 }]}>
                         <Text style={[styles.featuredTitle, { color: theme.primaryText }]} numberOfLines={2}>
-                          {discoverData.featured.name}
+                          {discoverData.featured.name || 'Featured Album'}
                         </Text>
                         <Text style={[styles.featuredArtist, { color: theme.secondaryText }]} numberOfLines={1}>
-                          {discoverData.featured.artists[0].name}
+                          {discoverData.featured.artists?.[0]?.name || 'Unknown Artist'}
                         </Text>
                       </View>
                     </Pressable>
@@ -637,8 +640,8 @@ export default function HomeScreen({ route }) {
                       renderItem={({ item }) => (
                         <Pressable style={styles.carouselItem} onPress={() => handleDiscoverAlbumPress(item)}>
                           <Image source={{ uri: item.images[0]?.url }} style={styles.carouselImage} />
-                          <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.name}</Text>
-                          <Text style={[styles.carouselItemText, { color: theme.secondaryText, fontSize: 12, marginTop: 2 }]} numberOfLines={1}>{item.artists[0].name}</Text>
+                          <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.name || 'Unknown Album'}</Text>
+                          <Text style={[styles.carouselItemText, { color: theme.secondaryText, fontSize: 12, marginTop: 2 }]} numberOfLines={1}>{item.artists?.[0]?.name || 'Unknown Artist'}</Text>
                         </Pressable>
                       )}
                       keyExtractor={item => item.id}
@@ -658,8 +661,8 @@ export default function HomeScreen({ route }) {
                       renderItem={({ item }) => (
                         <Pressable style={styles.carouselItem} onPress={() => handleDiscoverAlbumPress(item)}>
                           <Image source={{ uri: item.images[0]?.url }} style={styles.carouselImage} />
-                          <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.name}</Text>
-                          <Text style={[styles.carouselItemText, { color: theme.secondaryText, fontSize: 12, marginTop: 2 }]} numberOfLines={1}>{item.artists[0].name}</Text>
+                          <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.name || 'Unknown Album'}</Text>
+                          <Text style={[styles.carouselItemText, { color: theme.secondaryText, fontSize: 12, marginTop: 2 }]} numberOfLines={1}>{item.artists?.[0]?.name || 'Unknown Artist'}</Text>
                         </Pressable>
                       )}
                       keyExtractor={item => item.id}
@@ -681,8 +684,8 @@ export default function HomeScreen({ route }) {
                       renderItem={({ item }) => (
                         <Pressable style={styles.carouselItem} onPress={() => handleDiscoverTrackPress(item)}>
                           <Image source={{ uri: item.album.cover_xl }} style={styles.carouselImage} />
-                          <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.title}</Text>
-                          <Text style={[styles.carouselItemText, { color: theme.secondaryText, fontSize: 12, marginTop: 2 }]} numberOfLines={1}>{item.artist.name}</Text>
+                          <Text style={[styles.carouselItemText, { color: theme.primaryText }]} numberOfLines={1}>{item.title || 'Unknown Track'}</Text>
+                          <Text style={[styles.carouselItemText, { color: theme.secondaryText, fontSize: 12, marginTop: 2 }]} numberOfLines={1}>{item.artist?.name || 'Unknown Artist'}</Text>
                         </Pressable>
                       )}
                       keyExtractor={item => item.id.toString()}
@@ -725,7 +728,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 8,
     paddingHorizontal: 0, // Removed horizontal padding as there is no background
-    gap: 8,
   },
   switcherText: {
     fontSize: 16, // Increased font size slightly for better visibility without pill
@@ -817,21 +819,20 @@ const styles = StyleSheet.create({
   },
   recentGrid: {
     flexDirection: 'row',
-    gap: 12,
+    justifyContent: 'space-between',
   },
   recentColumn: {
     flex: 1,
-    gap: 12,
+    paddingHorizontal: 6,
   },
   recentCard: {
     borderRadius: 12,
     padding: 12,
-    marginBottom: 0,
+    marginBottom: 12,
   },
   recentCardContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
   },
   recentCardImage: {
     width: 50,
@@ -839,6 +840,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 12,
   },
   recentCardText: {
     flex: 1,
@@ -871,7 +873,6 @@ const styles = StyleSheet.create({
   importButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 999,

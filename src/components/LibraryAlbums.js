@@ -3,14 +3,18 @@ import { View, Text, ScrollView, Pressable, Image, StyleSheet } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 
 export default function LibraryAlbums({ route, navigation }) {
-    const { theme, libraryAlbums, onTrackPress, reloadArtwork } = route.params;
+    const { theme, libraryAlbums, onTrackPress, reloadArtwork, openArtistByName } = route.params;
 
     const renderAlbumGridItem = (album, index) => {
         return (
             <Pressable
                 key={`album-${index}`}
                 style={styles.gridItem}
-                onPress={() => navigation.navigate('LibraryAlbum', { ...route.params, album })}
+                onPress={() => navigation.navigate('LibraryAlbum', { 
+                    ...route.params, 
+                    album,
+                    openArtistByName // Explicitly pass this to ensure it's available
+                })}
             >
                 {album.artwork ? (
                     <Image 

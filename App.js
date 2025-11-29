@@ -19,7 +19,7 @@ import LibraryPlaylists from './src/components/LibraryPlaylists';
 import AddPlaylist from './src/components/AddPlaylist';
 import PlaylistPage from './src/components/PlaylistPage';
 import ImportExternalPlaylist from './src/components/ImportExternalPlaylist';
-import SongPlayerV2 from './src/components/SongPlayerV2';
+// import SongPlayerV2 from './src/components/SongPlayerV2';
 import HomeScreen from './src/components/HomeScreen';
 import ModulesPage from './src/components/ModulesPage';
 import PlayerColorsPage from './src/components/PlayerColorsPage';
@@ -32,7 +32,7 @@ import * as Notifications from 'expo-notifications';
 import { clearArtworkCacheManually, getArtworkWithFallback } from './src/utils/artworkFallback';
 import { clearCache as clearTidalCache } from './src/utils/tidalCache';
 import { getPlayableTrack } from './src/utils/tidalStreamHelper';
-import { setupPlayer } from './src/services/SetupService';
+// import { setupPlayer } from './src/services/SetupService';
 
 
 Notifications.setNotificationHandler({
@@ -156,7 +156,7 @@ function LibraryHomeScreen({ route, navigation }) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       ref.measure((x, y, width, height, pageX, pageY) => {
-        const MENU_HEIGHT = 220; // Approximate height of the menu
+        const MENU_HEIGHT = 280; // Approximate height of the menu (increased for Go to Artist)
         const OFFSET = 60; // Overlap offset
 
         // Default position (below with overlap)
@@ -302,6 +302,7 @@ function LibraryHomeScreen({ route, navigation }) {
             isPlaying: playerControls?.isPlaying,
             togglePlay: playerControls?.togglePlay,
             reloadArtwork,
+            openArtistByName: openArtistPage,
           })}
           onLongPress={() => openContextMenu(album, albumKey)}
         >
@@ -383,7 +384,7 @@ function LibraryHomeScreen({ route, navigation }) {
 
           <Pressable
             style={[styles.libraryNavButton, { borderBottomColor: theme.border }]}
-            onPress={() => navigation.navigate('LibraryAlbums', { theme, libraryAlbums, onTrackPress: openTrackPlayer, reloadArtwork })}
+            onPress={() => navigation.navigate('LibraryAlbums', { theme, libraryAlbums, onTrackPress: openTrackPlayer, reloadArtwork, openArtistByName: openArtistPage })}
           >
             <View style={styles.libraryNavIconContainer}>
               <Ionicons name="albums" size={28} color={theme.primaryText} />
@@ -394,7 +395,7 @@ function LibraryHomeScreen({ route, navigation }) {
 
           <Pressable
             style={[styles.libraryNavButton, styles.libraryNavButtonLast, { borderBottomWidth: 0 }]}
-            onPress={() => navigation.navigate('LibrarySongs', { theme, library, onTrackPress: openTrackPlayer, addToQueue, deleteTrack, updateTrack, playlists, addTrackToPlaylist, showNotification })}
+            onPress={() => navigation.navigate('LibrarySongs', { theme, library, onTrackPress: openTrackPlayer, addToQueue, deleteTrack, updateTrack, playlists, addTrackToPlaylist, showNotification, openArtistPage, libraryAlbums, navigation })}
           >
             <View style={styles.libraryNavIconContainer}>
               <Ionicons name="musical-note" size={28} color={theme.primaryText} />
@@ -468,6 +469,20 @@ function LibraryHomeScreen({ route, navigation }) {
                 },
               ]}
             >
+              {openArtistPage && contextMenuAlbum && (
+                <>
+                  <Pressable style={styles.contextMenuItem} onPress={() => {
+                    if (contextMenuAlbum.artist) {
+                      openArtistPage({ name: contextMenuAlbum.artist, image: [] });
+                      closeContextMenu();
+                    }
+                  }}>
+                    <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Go to Artist</Text>
+                    <Ionicons name="person-outline" size={20} color={theme.primaryText} />
+                  </Pressable>
+                  <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
+                </>
+              )}
               <Pressable style={styles.contextMenuItem} onPress={handleAddAlbumToQueue}>
                 <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Add to Queue</Text>
                 <Ionicons name="list-outline" size={20} color={theme.primaryText} />
@@ -939,6 +954,39 @@ function SettingsPage({ route, navigation }) {
         <View style={styles.settingsSection}>
           <Pressable
             style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
+            onPress={() => {}}
+          >
+            <View style={styles.settingsRowLeft}>
+              <Ionicons name="volume-high-outline" size={24} color={theme.primaryText} />
+              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Audio</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
+          </Pressable>
+
+          <Pressable
+            style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
+            onPress={() => {}}
+          >
+            <View style={styles.settingsRowLeft}>
+              <Ionicons name="download-outline" size={24} color={theme.primaryText} />
+              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Downloads</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
+          </Pressable>
+
+          <Pressable
+            style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
+            onPress={() => {}}
+          >
+            <View style={styles.settingsRowLeft}>
+              <Ionicons name="library-outline" size={24} color={theme.primaryText} />
+              <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Library</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
+          </Pressable>
+
+          <Pressable
+            style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
             onPress={() => navigation.navigate('Appearance', { theme, userTheme, setUserTheme, playerColorMode, setPlayerColorMode })}
           >
             <View style={styles.settingsRowLeft}>
@@ -1086,16 +1134,44 @@ function AboutPage({ route, navigation }) {
         <Text style={[styles.settingsPageTitle, { color: theme.primaryText }]}>About</Text>
       </View>
 
-      <View style={{ flex: 1, padding: 24, alignItems: 'center', justifyContent: 'center' }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24, alignItems: 'center', paddingTop: 60 }}>
         <Image
           source={require('./assets/logo.png')}
           style={{ width: 120, height: 120, marginBottom: 24, borderRadius: 24, tintColor: theme.primaryText }}
         />
-        <Text style={[styles.title, { color: theme.primaryText, marginBottom: 16, textAlign: 'center' }]}>8SPINE</Text>
-        <Text style={[styles.secondaryText, { color: theme.secondaryText, textAlign: 'center', fontSize: 16, lineHeight: 24 }]}>
+        <Text style={[styles.title, { color: theme.primaryText, marginBottom: 8, textAlign: 'center' }]}>8SPINE</Text>
+        <Text style={{ color: theme.secondaryText, fontSize: 14, marginBottom: 16 }}>v0.9.0</Text>
+        <Text style={[styles.secondaryText, { color: theme.secondaryText, textAlign: 'center', fontSize: 16, lineHeight: 24, marginBottom: 40 }]}>
           This is the closed testing of 8SPINE, modular advanced music cataloging and playing app.
         </Text>
-      </View>
+
+        {/* Brought to you by section */}
+        <Text style={{ color: theme.secondaryText, fontSize: 14, fontWeight: '600', marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>
+          Brought to you by
+        </Text>
+
+        {/* Developer Card */}
+        <View style={[styles.settingsRow, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1, borderRadius: 12, padding: 16, width: '100%', maxWidth: 400, marginBottom: 24 }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            {/* Profile Picture with Initials */}
+            <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: theme.background, fontSize: 18, fontWeight: '600' }}>MK</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: theme.primaryText, fontSize: 17, fontWeight: '500' }}>Morgk</Text>
+              <Text style={{ color: theme.secondaryText, fontSize: 13, fontWeight: '400', marginTop: 2 }}>me fr</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Legal Button */}
+        <Pressable
+          style={[styles.settingsRow, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1, borderRadius: 12, padding: 16, width: '100%', maxWidth: 400, justifyContent: 'center' }]}
+          onPress={() => {}}
+        >
+          <Text style={{ color: theme.primaryText, fontSize: 17, fontWeight: '500' }}>Legal</Text>
+        </Pressable>
+      </ScrollView>
     </View>
   );
 }
@@ -1164,7 +1240,7 @@ function AppContent() {
   useEffect(() => {
     const initModules = async () => {
       await ModuleManager.init();
-      await setupPlayer();
+      // await setupPlayer();
     };
     initModules();
   }, []);
@@ -1789,7 +1865,19 @@ function AppContent() {
       }
 
       setLibrary((prev) => {
-        const next = prev.filter((t) => t.uri !== trackToDelete.uri);
+        const next = prev.filter((t) => {
+          // Match by URI if both tracks have URIs
+          if (t.uri && trackToDelete.uri) {
+            return t.uri !== trackToDelete.uri;
+          }
+          
+          // Otherwise match by name + artist + album (handling null/undefined values)
+          const nameMatch = t.name === trackToDelete.name;
+          const artistMatch = (t.artist?.name || t.artist || '') === (trackToDelete.artist?.name || trackToDelete.artist || '');
+          const albumMatch = (t.album || '') === (trackToDelete.album || '');
+          
+          return !(nameMatch && artistMatch && albumMatch);
+        });
         saveLibrary(next);
         return next;
       });
@@ -1854,7 +1942,14 @@ function AppContent() {
 
   const deleteAlbum = async (albumName) => {
     try {
-      const tracksToDelete = library.filter(t => t.album === albumName);
+      // Normalize the album name for matching (handle "Unknown Album" case)
+      const normalizeAlbumName = (name) => name?.trim() || 'Unknown Album';
+      const normalizedAlbumName = normalizeAlbumName(albumName);
+      
+      const tracksToDelete = library.filter(t => {
+        const trackAlbumName = normalizeAlbumName(t.album);
+        return trackAlbumName === normalizedAlbumName;
+      });
 
       // Delete files
       for (const track of tracksToDelete) {
@@ -1864,7 +1959,10 @@ function AppContent() {
       }
 
       setLibrary((prev) => {
-        const next = prev.filter((t) => t.album !== albumName);
+        const next = prev.filter((t) => {
+          const trackAlbumName = normalizeAlbumName(t.album);
+          return trackAlbumName !== normalizedAlbumName;
+        });
         saveLibrary(next);
         return next;
       });
@@ -2995,6 +3093,7 @@ function AppContent() {
                       libraryAlbums,
                       onTrackPress: openTrackPlayer,
                       reloadArtwork,
+                      openArtistByName,
                     },
                   }}
                 />

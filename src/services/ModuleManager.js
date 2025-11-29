@@ -28,9 +28,31 @@ class ModuleManagerService {
 
     loadModule(code) {
         try {
+            let moduleCode = code;
+            
+            // Check if code has export/const wrapper format
+            const hasExportWrapper = /export\s+const\s+\w+\s*=/.test(moduleCode) || /^const\s+\w+\s*=/.test(moduleCode);
+            
+            if (hasExportWrapper) {
+                // Evaluate the wrapper code to extract the actual module code
+                // Remove 'export' keyword and evaluate as regular const assignment
+                const evalCode = moduleCode.replace(/^\s*export\s+/, '');
+                
+                // Create a context to evaluate the code and extract the value
+                const extractValue = new Function(evalCode + '\nreturn arguments[0];');
+                
+                // Get the variable name from the code
+                const varMatch = evalCode.match(/const\s+(\w+)\s*=/);
+                if (varMatch) {
+                    const varName = varMatch[1];
+                    const extractFunc = new Function(evalCode + `\nreturn ${varName};`);
+                    moduleCode = extractFunc();
+                }
+            }
+            
             // robust wrapper to allow the script to return the module object
             // We wrap in an IIFE or just new Function
-            const createModule = new Function(code);
+            const createModule = new Function(moduleCode);
             const moduleInstance = createModule();
             
             if (!moduleInstance || !moduleInstance.id) {

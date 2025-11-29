@@ -319,7 +319,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       ref.measure((x, y, width, height, pageX, pageY) => {
-        const MENU_HEIGHT = 220; // Approximate height of the menu
+        const MENU_HEIGHT = 320; // Approximate height of the menu (increased for new items)
         const OFFSET = 60; // Overlap offset
 
         // Default position (below with overlap)
@@ -572,6 +572,26 @@ export default function LibraryAlbumPage({ route, navigation }) {
       addToQueue(contextMenuTrack);
       closeContextMenu();
     }
+  };
+
+  const handleGoToArtist = () => {
+    if (!openArtistByName) {
+      console.warn('openArtistByName function not available');
+      closeContextMenu();
+      return;
+    }
+    if (contextMenuTrack) {
+      const artistName = typeof contextMenuTrack.artist === 'object' 
+        ? contextMenuTrack.artist?.name 
+        : contextMenuTrack.artist || 'Unknown Artist';
+      openArtistByName(artistName);
+      closeContextMenu();
+    }
+  };
+
+  const handleGoToAlbum = () => {
+    // Already in album page, just close menu
+    closeContextMenu();
   };
 
   const saveTrackEdit = async () => {
@@ -1033,6 +1053,19 @@ export default function LibraryAlbumPage({ route, navigation }) {
               },
             ]}
           >
+            {openArtistByName && (
+              <>
+                <Pressable style={styles.contextMenuItem} onPress={() => {
+                  const artistName = typeof album.artist === 'object' ? album.artist?.name : album.artist;
+                  openArtistByName(artistName);
+                  closeAlbumMenu();
+                }}>
+                  <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Go to Artist</Text>
+                  <Ionicons name="person-outline" size={20} color={theme.primaryText} />
+                </Pressable>
+                <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
+              </>
+            )}
             <Pressable style={styles.contextMenuItem} onPress={() => {
               if (addAlbumToQueue) {
                 addAlbumToQueue(album);
@@ -1053,7 +1086,6 @@ export default function LibraryAlbumPage({ route, navigation }) {
               <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Add to Playlist</Text>
               <Ionicons name="add-outline" size={20} color={theme.primaryText} />
             </Pressable>
-            <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
             <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
 
             {/* Show in library only if NOT in library */}
@@ -1127,6 +1159,15 @@ export default function LibraryAlbumPage({ route, navigation }) {
               },
             ]}
           >
+            {openArtistByName && (
+              <>
+                <Pressable style={styles.contextMenuItem} onPress={handleGoToArtist}>
+                  <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Go to Artist</Text>
+                  <Ionicons name="person-outline" size={20} color={theme.primaryText} />
+                </Pressable>
+                <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
+              </>
+            )}
             <Pressable style={styles.contextMenuItem} onPress={handleAddToQueue}>
               <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Add to Queue</Text>
               <Ionicons name="list-outline" size={20} color={theme.primaryText} />

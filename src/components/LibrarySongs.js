@@ -16,7 +16,7 @@ function pickImageUrl(images, preferredSize = 'large') {
 }
 
 export default function LibrarySongs({ route, navigation }) {
-    const { theme, library, onTrackPress, addToQueue, deleteTrack, updateTrack, playlists, addTrackToPlaylist, showNotification } = route.params;
+    const { theme, library, onTrackPress, addToQueue, deleteTrack, updateTrack, playlists, addTrackToPlaylist, showNotification, openArtistPage, libraryAlbums } = route.params;
     const { downloadedTracks } = useDownload();
     const { height: screenHeight } = useWindowDimensions();
 
@@ -65,7 +65,7 @@ export default function LibrarySongs({ route, navigation }) {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
             ref.measure((x, y, width, height, pageX, pageY) => {
-                const MENU_HEIGHT = 220; // Approximate height of the menu
+                const MENU_HEIGHT = 320; // Approximate height of the menu (increased for new items)
                 const OFFSET = 60; // Overlap offset
                 
                 // Default position (below with overlap)
@@ -145,6 +145,63 @@ export default function LibrarySongs({ route, navigation }) {
         if (contextMenuTrack && addToQueue) {
             addToQueue(contextMenuTrack);
             closeContextMenu();
+        }
+    };
+
+    const handleGoToArtist = () => {
+        if (!openArtistPage) {
+            console.warn('openArtistPage function not available');
+            closeContextMenu();
+            return;
+        }
+        if (contextMenuTrack) {
+            const artistName = contextMenuTrack.artist?.name || contextMenuTrack.artist || 'Unknown Artist';
+            // Create a minimal artist object for navigation
+            const artist = {
+                name: artistName,
+                image: contextMenuTrack.image || []
+            };
+            openArtistPage(artist);
+            closeContextMenu();
+        }
+    };
+
+    const handleGoToAlbum = () => {
+        if (!libraryAlbums || !navigation) {
+            console.warn('libraryAlbums or navigation not available');
+            closeContextMenu();
+            return;
+        }
+        if (contextMenuTrack) {
+            const albumName = contextMenuTrack.album || 'Unknown Album';
+            const artistName = contextMenuTrack.artist?.name || contextMenuTrack.artist || 'Unknown Artist';
+            
+            // Find the album in libraryAlbums
+            const album = libraryAlbums.find(a => 
+                (a.title || '').toLowerCase().trim() === albumName.toLowerCase().trim() &&
+                (a.artist || '').toLowerCase().trim() === artistName.toLowerCase().trim()
+            );
+            
+            if (album) {
+                navigation.navigate('LibraryAlbum', {
+                    album,
+                    theme,
+                    onTrackPress,
+                    libraryAlbums,
+                    library,
+                    deleteTrack,
+                    updateTrack,
+                    addToQueue,
+                    playlists,
+                    addTrackToPlaylist,
+                    showNotification,
+                    openArtistPage
+                });
+                closeContextMenu();
+            } else {
+                console.warn('Album not found in library');
+                closeContextMenu();
+            }
         }
     };
 
@@ -328,6 +385,24 @@ export default function LibrarySongs({ route, navigation }) {
                             },
                         ]}
                     >
+                        {openArtistPage && (
+                            <>
+                                <Pressable style={styles.contextMenuItem} onPress={handleGoToArtist}>
+                                    <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Go to Artist</Text>
+                                    <Ionicons name="person-outline" size={20} color={theme.primaryText} />
+                                </Pressable>
+                                <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
+                            </>
+                        )}
+                        {libraryAlbums && navigation && (
+                            <>
+                                <Pressable style={styles.contextMenuItem} onPress={handleGoToAlbum}>
+                                    <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Go to Album</Text>
+                                    <Ionicons name="albums-outline" size={20} color={theme.primaryText} />
+                                </Pressable>
+                                <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
+                            </>
+                        )}
                         <Pressable style={styles.contextMenuItem} onPress={handleAddToQueue}>
                             <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Add to Queue</Text>
                             <Ionicons name="list-outline" size={20} color={theme.primaryText} />
