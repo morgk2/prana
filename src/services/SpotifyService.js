@@ -84,6 +84,29 @@ export const getNewReleases = async (limit = 20) => {
     }
 };
 
+export const searchAlbums = async (albumTitle, artistName, limit = 1) => {
+    const token = await getSpotifyToken();
+    if (!token) return null;
+
+    try {
+        // Build search query
+        const query = `album:${albumTitle} artist:${artistName}`;
+        const encodedQuery = encodeURIComponent(query);
+        
+        const res = await fetch(`${SPOTIFY_API_URL}/search?q=${encodedQuery}&type=album&limit=${limit}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!res.ok) throw new Error(`Spotify Album Search Error: ${res.status}`);
+
+        const data = await res.json();
+        return data.albums?.items || [];
+    } catch (error) {
+        console.error('Error searching Spotify albums:', error);
+        return null;
+    }
+};
+
 export const getSpotifyAlbumDetails = async (albumId) => {
     const token = await getSpotifyToken();
     if (!token) return null;

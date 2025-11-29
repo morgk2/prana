@@ -26,6 +26,9 @@ import { preloadLyrics, preloadQueueLyrics } from '../utils/lyricsCache';
 import { getArtworkWithFallback } from '../utils/artworkFallback';
 import { getFreshTidalStream, getPlayableTrack, shouldStreamFromTidal } from '../utils/tidalStreamHelper';
 import { useDownload } from '../context/DownloadContext';
+import ExplicitBadge from './ExplicitBadge';
+
+const expandedLogo = require('../../assets/expandedLogo.png');
 
 if (Platform.OS === 'android') {
     if (UIManager.setLayoutAnimationEnabledExperimental) {
@@ -219,6 +222,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const nextTranslate = useRef(new Animated.Value(0)).current;
     const prevTranslate = useRef(new Animated.Value(0)).current;
     const expandAnim = useRef(new Animated.Value(isVisible ? 1 : 0)).current;
+    const logoOpacity = useRef(new Animated.Value(1)).current;
 
     const [isScrubbing, setIsScrubbing] = useState(false);
     const isScrubbingRef = useRef(false);
@@ -356,6 +360,21 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             setIsTrackLoading(false);
         }
     }, [isPlaying, progress.position]);
+
+    // Preload lyrics for current track when it starts playing
+    useEffect(() => {
+        if (track && isPlaying) {
+            preloadLyrics(track);
+        }
+    }, [track?.id, track?.name, isPlaying]);
+
+    // Preload lyrics for upcoming songs in queue
+    useEffect(() => {
+        if (queue && queue.length > 0 && queueIndex >= 0) {
+            // Preload current and next 3 songs
+            preloadQueueLyrics(queue, queueIndex, 3);
+        }
+    }, [queue, queueIndex]);
 
     // Track End Handling & Remote Events
     useEffect(() => {
@@ -526,19 +545,33 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     useEffect(() => {
         if (showLyrics) {
             setIsLyricsRendered(true);
-            Animated.timing(lyricsAnim, {
-                toValue: 1,
-                duration: 500,
-                easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-                useNativeDriver: true,
-            }).start();
+            Animated.parallel([
+                Animated.timing(lyricsAnim, {
+                    toValue: 1,
+                    duration: 500,
+                    easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+                    useNativeDriver: true,
+                }),
+                Animated.timing(logoOpacity, {
+                    toValue: 0,
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+            ]).start();
         } else {
-            Animated.timing(lyricsAnim, {
-                toValue: 0,
-                duration: 500,
-                easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-                useNativeDriver: true,
-            }).start(({ finished }) => {
+            Animated.parallel([
+                Animated.timing(lyricsAnim, {
+                    toValue: 0,
+                    duration: 500,
+                    easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+                    useNativeDriver: true,
+                }),
+                Animated.timing(logoOpacity, {
+                    toValue: 1,
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+            ]).start(({ finished }) => {
                 if (finished) {
                     setIsLyricsRendered(false);
                 }
@@ -791,7 +824,14 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                             ]}
                         >
                             <View style={{ flex: 1, marginRight: 16 }}>
-                                <Text style={[styles.title, { color: colors.detail }]} numberOfLines={1}>{track.name}</Text>
+                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                    <Text style={[styles.title, { color: colors.detail, flexShrink: 1 }]} numberOfLines={1}>{track.name}</Text>
+                                    {track.explicit && (
+                                        <ExplicitBadge 
+                                            theme={{ secondaryText: playerColorMode === 'light' ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)' }} 
+                                        />
+                                    )}
+                                </View>
                                 <Pressable onPress={() => onArtistPress && onArtistPress(track.artist?.name ?? track.artist)}>
                                     <Text style={[styles.artist, { color: colors.detail }]} numberOfLines={1}>{track.artist?.name ?? track.artist}</Text>
                                 </Pressable>
@@ -870,6 +910,17 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                             <Pressable hitSlop={16} onPress={toggleLyrics} style={styles.bottomControlButton}>
                                 <Ionicons name="chatbox-ellipses" size={24} color={showLyrics ? colors.detail : (playerColorMode === 'light' ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.7)')} />
                             </Pressable>
+                            <Animated.Image
+                                source={expandedLogo}
+                                style={[
+                                    styles.bottomLogo,
+                                    {
+                                        opacity: logoOpacity,
+                                        tintColor: playerColorMode === 'dark' ? '#ffffff' : undefined,
+                                    }
+                                ]}
+                                resizeMode="contain"
+                            />
                             <Pressable onPress={() => setQueueVisible(true)} style={styles.bottomControlButton}>
                                 <Ionicons name="list" size={24} color={colors.detail} />
                             </Pressable>
@@ -1019,9 +1070,14 @@ const styles = StyleSheet.create({
     bottomControls: {
         flexDirection: 'row',
         justifyContent: 'space-between',
+        alignItems: 'center',
         width: '100%',
         paddingHorizontal: 40,
         marginBottom: 40,
+    },
+    bottomLogo: {
+        width: 40,
+        height: 40,
     },
     bottomControlButton: {
         padding: 10,

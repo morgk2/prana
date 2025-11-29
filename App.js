@@ -19,7 +19,7 @@ import LibraryPlaylists from './src/components/LibraryPlaylists';
 import AddPlaylist from './src/components/AddPlaylist';
 import PlaylistPage from './src/components/PlaylistPage';
 import ImportExternalPlaylist from './src/components/ImportExternalPlaylist';
-import SongPlayerV2 from './src/components/SongPlayerV2';
+// import SongPlayerV2 from './src/components/SongPlayerV2';
 import HomeScreen from './src/components/HomeScreen';
 import ModulesPage from './src/components/ModulesPage';
 import PlayerColorsPage from './src/components/PlayerColorsPage';
@@ -32,7 +32,7 @@ import * as Notifications from 'expo-notifications';
 import { clearArtworkCacheManually, getArtworkWithFallback } from './src/utils/artworkFallback';
 import { clearCache as clearTidalCache } from './src/utils/tidalCache';
 import { getPlayableTrack } from './src/utils/tidalStreamHelper';
-import { setupPlayer } from './src/services/SetupService';
+// import { setupPlayer } from './src/services/SetupService';
 
 
 Notifications.setNotificationHandler({
@@ -69,6 +69,7 @@ const LIBRARY_FILE = LIBRARY_DIR + '/tracks.json';
 const ARTISTS_FILE = LIBRARY_DIR + '/artists.json';
 const PLAYLISTS_FILE = LIBRARY_DIR + '/playlists.json';
 const SETTINGS_FILE = LIBRARY_DIR + '/settings.json';
+const RECENT_RESULTS_FILE = LIBRARY_DIR + '/recent_results.json';
 const PLAYER_STATE_FILE = LIBRARY_DIR + '/player_state.json';
 
 const LibraryStack = createNativeStackNavigator();
@@ -1163,7 +1164,7 @@ function AppContent() {
   useEffect(() => {
     const initModules = async () => {
       await ModuleManager.init();
-      await setupPlayer();
+      // await setupPlayer();
     };
     initModules();
   }, []);
@@ -1218,13 +1219,6 @@ function AppContent() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const addToRecentSearches = (q) => {
-    if (!q || !q.trim()) return;
-    setRecentSearches((prev) => {
-      const filtered = prev.filter((s) => s !== q);
-      return [q, ...filtered].slice(0, 10);
-    });
-  };
 
   // navigation/state for detail views
   const [view, setView] = useState('search'); // 'search' | 'artist'
@@ -1331,8 +1325,8 @@ function AppContent() {
   // bottom tabs: 'home' | 'search' | 'library'
   const [currentTab, setCurrentTab] = useState('home');
 
-  // Recent searches state
-  const [recentSearches, setRecentSearches] = useState([]);
+  // Recent results state
+  const [recentResults, setRecentResults] = useState([]);
 
   // currently selected track and player view state
   const [currentTrack, setCurrentTrack] = useState(null);
@@ -1404,6 +1398,49 @@ function AppContent() {
     } catch (e) {
       console.warn('Failed to load playlists', e);
     }
+  };
+
+  const loadRecentResults = async () => {
+    try {
+      const fileInfo = await FileSystem.getInfoAsync(RECENT_RESULTS_FILE);
+      if (fileInfo.exists) {
+        const json = await FileSystem.readAsStringAsync(RECENT_RESULTS_FILE);
+        const parsed = JSON.parse(json || '[]');
+        if (Array.isArray(parsed)) {
+          setRecentResults(parsed);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load recent results', e);
+    }
+  };
+
+  const addToRecentResults = async (result) => {
+    if (!result || !result.item) return;
+    
+    // Create a clean item object to save space and avoid circular references
+    // We only need enough info to display it and open it again
+    const cleanItem = {
+      type: result.type,
+      item: result.item,
+      timestamp: Date.now()
+    };
+
+    setRecentResults((prev) => {
+      // Filter out duplicates (based on name + type)
+      const filtered = prev.filter((r) => 
+        !(r.type === cleanItem.type && (r.item.name === cleanItem.item.name || r.item.mbid === cleanItem.item.mbid))
+      );
+      // Add new item to top, limit to 8
+      const updated = [cleanItem, ...filtered].slice(0, 8);
+      
+      // Persist to file
+      FileSystem.writeAsStringAsync(RECENT_RESULTS_FILE, JSON.stringify(updated)).catch(e => 
+        console.warn('Failed to save recent results', e)
+      );
+      
+      return updated;
+    });
   };
 
   const loadSettings = async () => {
@@ -1641,6 +1678,7 @@ function AppContent() {
     };
     configureAudio();
     loadSettings(); // Load settings on app start
+    loadRecentResults(); // Load recent results
     loadPlayerState(); // Restore player state
     loadLibrary();
     loadPlaylists();
@@ -1997,9 +2035,6 @@ function AppContent() {
   };
 
 
-  const clearRecentSearches = () => {
-    setRecentSearches([]);
-  };
 
   const onSearch = async () => {
     if (!query.trim()) return;
@@ -2007,8 +2042,7 @@ function AppContent() {
     setError(null);
 
     // Add to recent searches
-    addToRecentSearches(query);
-
+    
     try {
       const result = await detectIntent(query.trim());
       setArtists(result.artists);
@@ -2407,7 +2441,7 @@ function AppContent() {
             value={query}
             onChangeText={setQuery}
             returnKeyType="search"
-            onSubmitEditing={() => addToRecentSearches(query)}
+            onSubmitEditing={() => {}}
           />
           {query.length > 0 && (
             <Pressable onPress={() => setQuery('')} style={styles.clearButton}>
@@ -2420,22 +2454,20 @@ function AppContent() {
       <ScrollView contentContainerStyle={styles.resultsContent}>
         {query.length === 0 ? (
           <>
-            {recentSearches.length > 0 && (
+            {recentResults.length > 0 && (
               <View style={styles.sectionContainer}>
                 <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Recent</Text>
-                <View style={styles.recentSearches}>
-                  {recentSearches.map((search, index) => (
-                    <Pressable
-                      key={index}
-                      style={styles.recentSearchItem}
-                      onPress={() => {
-                        setQuery(search);
-                        addToRecentSearches(search);
-                      }}
-                    >
-                      <Ionicons name="time-outline" size={20} color={theme.secondaryText} />
-                      <Text style={[styles.recentSearchText, { color: theme.primaryText }]}>{search}</Text>
-                    </Pressable>
+                <View style={styles.resultsContainer}>
+                  {recentResults.map((result, index) => (
+                    <SearchResultItem
+                      key={`recent-${index}`}
+                      item={result}
+                      index={index}
+                      theme={theme}
+                      onPressArtist={() => { addToRecentResults(result); openArtistPage(result.item); }}
+                      onPressAlbum={() => { addToRecentResults(result); openAlbumPage(result.item); }}
+                      onPressTrack={() => { addToRecentResults(result); handleSearchTrackPress(result.item); }}
+                    />
                   ))}
                 </View>
               </View>
@@ -2594,9 +2626,9 @@ function AppContent() {
         item={item}
         index={index}
         theme={theme}
-        onPressArtist={() => { addToRecentSearches(query); openArtistPage(raw); }}
-        onPressAlbum={() => { addToRecentSearches(query); openAlbumPage(raw); }}
-        onPressTrack={() => { addToRecentSearches(query); handleSearchTrackPress(raw); }}
+        onPressArtist={() => { addToRecentResults(item); openArtistPage(raw); }}
+        onPressAlbum={() => { addToRecentResults(item); openAlbumPage(raw); }}
+        onPressTrack={() => { addToRecentResults(item); handleSearchTrackPress(raw); }}
       />
     );
   };
@@ -3115,7 +3147,7 @@ function AppContent() {
         </Animated.View>
 
         {/* Full-screen Song Player */}
-        {currentTrack && (
+        {/* {currentTrack && (
           <SongPlayerV2
             track={currentTrack}
             queue={currentQueue}
@@ -3136,7 +3168,7 @@ function AppContent() {
             shouldHide={['Settings', 'Appearance', 'PlayerColors', 'Cache', 'AdvancedCatalog', 'SelfHostedCollection', 'Modules', 'ImportSpotifyPlaylist', 'About'].includes(currentRoute)}
             playerColorMode={playerColorMode}
           />
-        )}
+        )} */}
       </View>
     </DownloadProvider>
   );

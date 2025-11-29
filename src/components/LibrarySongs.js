@@ -5,6 +5,7 @@ import * as Haptics from 'expo-haptics';
 import { useDownload } from '../context/DownloadContext';
 
 import SwipeableTrackRow from './SwipeableTrackRow';
+import ExplicitBadge from './ExplicitBadge';
 
 function pickImageUrl(images, preferredSize = 'large') {
     if (!Array.isArray(images)) return null;
@@ -227,10 +228,13 @@ export default function LibrarySongs({ route, navigation }) {
                     </View>
                 )}
                 <View style={styles.songInfo}>
-                    <Text style={[styles.songTitle, { color: theme.primaryText }]} numberOfLines={1}>
-                        {item.name}
-                    </Text>
-                    <Text style={[styles.songArtist, { color: theme.secondaryText }]} numberOfLines={1}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1, paddingRight: 8 }}>
+                        <Text style={[styles.songTitle, { color: theme.primaryText, flexShrink: 1, marginBottom: 0 }]} numberOfLines={1}>
+                            {item.name}
+                        </Text>
+                        {item.explicit && <ExplicitBadge theme={theme} />}
+                    </View>
+                    <Text style={[styles.songArtist, { color: theme.secondaryText, marginTop: 4 }]} numberOfLines={1}>
                         {artistName}
                     </Text>
                 </View>

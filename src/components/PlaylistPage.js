@@ -16,6 +16,7 @@ import * as Haptics from 'expo-haptics';
 import SwipeableTrackRow from './SwipeableTrackRow';
 import { getPlayableTrack } from '../utils/tidalStreamHelper';
 import { useDownload } from '../context/DownloadContext';
+import ExplicitBadge from './ExplicitBadge';
 
 function pickImageUrl(images, preferredSize = 'large') {
     if (!Array.isArray(images)) return null;
@@ -480,9 +481,12 @@ export default function PlaylistPage({ route, navigation }) {
                                             )}
 
                                             <View style={styles.trackInfo}>
-                                                <Text style={[styles.trackName, { color: theme.primaryText }]} numberOfLines={1}>
-                                                    {track.name}
-                                                </Text>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1, paddingRight: 8 }}>
+                                                    <Text style={[styles.trackName, { color: theme.primaryText, flexShrink: 1 }]} numberOfLines={1}>
+                                                        {track.name}
+                                                    </Text>
+                                                    {track.explicit && <ExplicitBadge theme={theme} />}
+                                                </View>
                                                 <Text style={[styles.trackArtist, { color: theme.secondaryText }]} numberOfLines={1}>
                                                     {track.artist?.name || track.artist || 'Unknown Artist'}
                                                 </Text>
@@ -519,9 +523,12 @@ export default function PlaylistPage({ route, navigation }) {
                                         )}
 
                                         <View style={styles.trackInfo}>
-                                            <Text style={[styles.trackName, { color: theme.primaryText }]} numberOfLines={1}>
-                                                {track.name}
-                                            </Text>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1, paddingRight: 8 }}>
+                                                <Text style={[styles.trackName, { color: theme.primaryText, flexShrink: 1 }]} numberOfLines={1}>
+                                                    {track.name}
+                                                </Text>
+                                                {track.explicit && <ExplicitBadge theme={theme} />}
+                                            </View>
                                             <Text style={[styles.trackArtist, { color: theme.secondaryText }]} numberOfLines={1}>
                                                 {track.artist?.name || track.artist || 'Unknown Artist'}
                                             </Text>

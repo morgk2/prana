@@ -373,7 +373,7 @@ export default function HomeScreen({ route }) {
         scrollEnabled={scrollEnabled}
       >
         {/* Header */}
-        <View style={[styles.header, viewMode === 'discover' && { marginBottom: 0 }]}>
+        <View style={[styles.header, viewMode === 'discover' && { marginBottom: 0, paddingBottom: 20 }]}>
           <View>
             <Image
               source={require('../../assets/expandedLogo.png')}
@@ -382,7 +382,17 @@ export default function HomeScreen({ route }) {
           </View>
 
           {viewMode === 'discover' && (
-            <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center', justifyContent: 'center', top: 45, pointerEvents: 'none' }}>
+            <View style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center', justifyContent: 'center', top: 65, pointerEvents: 'none', flexDirection: 'row' }}>
+              <Text style={{
+                color: theme.primaryText,
+                fontSize: 22,
+                fontWeight: '300',
+                opacity: 0.4,
+                textAlign: 'center',
+                marginRight: 6,
+              }}>
+                from
+              </Text>
               <Text style={{
                 color: theme.primaryText,
                 fontSize: 22,
@@ -927,6 +937,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 20,
     elevation: 15,
+    zIndex: 10,
   },
   featuredGradient: {
     ...StyleSheet.absoluteFillObject,

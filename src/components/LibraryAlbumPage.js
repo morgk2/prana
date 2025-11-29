@@ -14,7 +14,7 @@ import {
   useWindowDimensions,
   Alert,
 } from 'react-native';
-import Svg, { Circle } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
@@ -22,6 +22,7 @@ import * as Haptics from 'expo-haptics';
 import SwipeableTrackRow from './SwipeableTrackRow';
 import { getPlayableTrack, getFreshTidalStream } from '../utils/tidalStreamHelper';
 import { useDownload } from '../context/DownloadContext';
+import { searchAlbums, getSpotifyAlbumDetails } from '../services/SpotifyService';
 
 // Waveform Component for Playing State
 const PlayingIndicator = ({ color }) => {
@@ -73,6 +74,8 @@ const PlayingIndicator = ({ color }) => {
     </View>
   );
 };
+
+import ExplicitBadge from './ExplicitBadge';
 
 export default function LibraryAlbumPage({ route, navigation }) {
   const { album: initialAlbum, theme, onTrackPress, libraryAlbums, library, openArtistByName, deleteTrack, updateTrack, addToQueue, addAlbumToQueue, currentTrack, isPlaying, togglePlay, useTidalForUnowned, addToLibrary, showNotification, playlists, addTrackToPlaylist, reloadArtwork } = route.params;
@@ -191,7 +194,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
         const baseTrack = localTrack || track;
         return {
           ...baseTrack,
-          track_number: track.track_number || track.trackNumber || index + 1,
+          disc_number: track.disc_number || track.discNumber || 1,
           // Ensure image is present if missing on local track
           image: (baseTrack.image && baseTrack.image.length > 0) ? baseTrack.image :
             (album.artwork ? [{ '#text': album.artwork, size: 'extralarge' }] : []),
@@ -209,7 +212,13 @@ export default function LibraryAlbumPage({ route, navigation }) {
         image: (track.image && track.image.length > 0) ? track.image :
           (album.artwork ? [{ '#text': album.artwork, size: 'extralarge' }] : []),
         track_number: track.track_number || track.trackNumber || index + 1,
+        disc_number: track.disc_number || track.discNumber || 1,
       };
+    }).sort((a, b) => {
+      const discA = a.disc_number || 1;
+      const discB = b.disc_number || 1;
+      if (discA !== discB) return discA - discB;
+      return (a.track_number || 0) - (b.track_number || 0);
     });
   }, [spotifyTracks, album.tracks, library, album.artwork, album.artist, album.title, downloadedTracks]);
 
@@ -222,7 +231,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
     }
   }, [libraryAlbums, isFocused, initialAlbum.key]);
 
-  // Fetch album tracks from MusicBrainz with caching
+  // Fetch album tracks from Spotify with caching
   useEffect(() => {
     const fetchAlbumTracks = async () => {
       if (!album || album.title === 'Unknown Album') return;
@@ -252,66 +261,46 @@ export default function LibraryAlbumPage({ route, navigation }) {
           }
         }
 
-        // Search for the album on MusicBrainz
+        // Search for the album on Spotify
         const artistName = typeof album.artist === 'object' ? album.artist?.name : album.artist;
-        const searchQuery = `${album.title} AND artist:${artistName}`;
-        const searchResponse = await fetch(
-          `https://musicbrainz.org/ws/2/release?query=${encodeURIComponent(searchQuery)}&fmt=json&limit=1`,
-          {
-            headers: {
-              'User-Agent': '8SPINE/1.0.0 (https://github.com/yourusername/8spine)',
-            },
-          }
-        );
+        const searchResults = await searchAlbums(album.title, artistName, 1);
 
-        if (!searchResponse.ok) {
-          console.log('MusicBrainz search failed:', searchResponse.status);
+        if (!searchResults || searchResults.length === 0) {
+          console.log('Spotify album search returned no results');
           return;
         }
 
-        const searchData = await searchResponse.json();
-        if (searchData.releases?.length > 0) {
-          const release = searchData.releases[0];
+        const spotifyAlbum = searchResults[0];
 
-          // Fetch release details with recordings (tracks) and labels
-          const releaseResponse = await fetch(
-            `https://musicbrainz.org/ws/2/release/${release.id}?inc=recordings+labels&fmt=json`,
-            {
-              headers: {
-                'User-Agent': '8SPINE/1.0.0 (https://github.com/yourusername/8spine)',
-              },
-            }
-          );
+        // Fetch full album details with tracks
+        const albumDetails = await getSpotifyAlbumDetails(spotifyAlbum.id);
 
-          if (releaseResponse.ok) {
-            const releaseData = await releaseResponse.json();
+        if (albumDetails) {
+          const date = albumDetails.release_date;
+          const label = albumDetails.label;
 
-            const date = releaseData.date;
-            const label = releaseData['label-info']?.[0]?.label?.name;
+          const tracks = albumDetails.tracks?.items?.map((track, index) => ({
+            name: track.name,
+            track_number: track.track_number,
+            disc_number: track.disc_number,
+            artists: track.artists?.map(a => ({ name: a.name })) || [{ name: artistName }],
+            id: track.id,
+            duration: track.duration_ms,
+            explicit: track.explicit || false,
+          })) || [];
 
-            const tracks = releaseData.media?.flatMap(medium =>
-              medium.tracks?.map(track => ({
-                name: track.title,
-                track_number: track.position,
-                artists: [{ name: artistName }],
-                id: track.id,
-                duration: track.length,
-              })) || []
-            ) || [];
+          const totalDuration = tracks.reduce((acc, t) => acc + (t.duration || 0), 0);
+          const metadata = { date, label, totalDuration };
 
-            const totalDuration = tracks.reduce((acc, t) => acc + (t.duration || 0), 0);
-            const metadata = { date, label, totalDuration };
+          // Save to cache
+          await FileSystem.writeAsStringAsync(cacheFile, JSON.stringify({
+            tracks,
+            metadata,
+            timestamp: Date.now(),
+          }));
 
-            // Save to cache
-            await FileSystem.writeAsStringAsync(cacheFile, JSON.stringify({
-              tracks,
-              metadata,
-              timestamp: Date.now(),
-            }));
-
-            setSpotifyTracks(tracks);
-            setAlbumMetadata(metadata);
-          }
+          setSpotifyTracks(tracks);
+          setAlbumMetadata(metadata);
         }
       } catch (error) {
         console.error('Error fetching album tracks:', error);
@@ -744,6 +733,12 @@ export default function LibraryAlbumPage({ route, navigation }) {
         {/* Track List */}
         <View style={styles.trackListSection}>
           {allTracks.map((track, index) => {
+            const prevTrack = allTracks[index - 1];
+            const currentDisc = track.disc_number || 1;
+            const prevDisc = prevTrack ? (prevTrack.disc_number || 1) : 0;
+            const hasMultipleDiscs = allTracks.some(t => (t.disc_number || 1) > 1);
+            const showDiscHeader = hasMultipleDiscs && (index === 0 || currentDisc !== prevDisc);
+
             // Check if imported based on track.uri or similar marker from our derivation
             // Our derived allTracks have local props if local
             const isImported = !!track.uri && !track.source; // Simple heuristic: local tracks have URI and usually no explicit source='tidal' yet (unless downloaded)
@@ -767,8 +762,15 @@ export default function LibraryAlbumPage({ route, navigation }) {
             }
 
             return (
-              <Animated.View
-                key={`album-track-${track.id || track.name || index}-${index}`}
+              <React.Fragment key={`album-track-wrapper-${track.id || track.name || index}-${index}`}>
+                {showDiscHeader && (
+                  <View style={styles.discHeader}>
+                    <Ionicons name="disc-outline" size={20} color={theme.secondaryText} />
+                    <Text style={[styles.discHeaderText, { color: theme.primaryText }]}>Disc {currentDisc}</Text>
+                  </View>
+                )}
+                <Animated.View
+                  key={`album-track-${track.id || track.name || index}-${index}`}
                 ref={(ref) => { if (ref) trackRefs.current[trackKey] = ref; }}
                 collapsable={false}
                 style={{
@@ -802,18 +804,22 @@ export default function LibraryAlbumPage({ route, navigation }) {
                         )}
                       </View>
                       <View style={styles.trackInfo}>
-                        <Text
-                          style={[
-                            styles.trackName,
-                            {
-                              color: isTrackPlaying ? theme.primaryText : theme.primaryText,
-                              fontWeight: isTrackPlaying ? '700' : '400'
-                            }
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {track.name}
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1, paddingRight: 8 }}>
+                          <Text
+                            style={[
+                              styles.trackName,
+                              {
+                                color: isTrackPlaying ? theme.primaryText : theme.primaryText,
+                                fontWeight: isTrackPlaying ? '700' : '400',
+                                flexShrink: 1
+                              }
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {track.name}
+                          </Text>
+                          {track.explicit && <ExplicitBadge theme={theme} />}
+                        </View>
                         <Text style={[styles.trackArtist, { color: theme.secondaryText }]} numberOfLines={1}>
                           {track.artist}
                         </Text>
@@ -845,18 +851,22 @@ export default function LibraryAlbumPage({ route, navigation }) {
                       )}
                     </View>
                     <View style={styles.trackInfo}>
-                      <Text
-                        style={[
-                          styles.trackName,
-                          {
-                            color: isTrackPlaying ? theme.primaryText : theme.secondaryText,
-                            fontWeight: isTrackPlaying ? '700' : '400'
-                          }
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {track.name}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1, paddingRight: 8 }}>
+                        <Text
+                          style={[
+                            styles.trackName,
+                            {
+                              color: isTrackPlaying ? theme.primaryText : theme.secondaryText,
+                              fontWeight: isTrackPlaying ? '700' : '400',
+                              flexShrink: 1
+                            }
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {track.name}
+                        </Text>
+                        {track.explicit && <ExplicitBadge theme={theme} />}
+                      </View>
                       <Text style={[styles.trackArtist, { color: theme.secondaryText }]} numberOfLines={1}>
                         {track.artist}
                       </Text>
@@ -899,6 +909,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
                   </Pressable>
                 )}
               </Animated.View>
+              </React.Fragment>
             );
           })}
 
@@ -1433,6 +1444,18 @@ const styles = StyleSheet.create({
   },
   trackListSection: {
     marginTop: 8,
+  },
+  discHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 12,
+    marginTop: 8,
+    gap: 8,
+  },
+  discHeaderText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
   trackRow: {
     flexDirection: 'row',
