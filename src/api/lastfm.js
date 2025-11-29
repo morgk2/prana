@@ -193,6 +193,9 @@ export async function getArtistInfo(artistName) {
 }
 
 // Helper to fetch from real Last.fm API as fallback
+// NOTE: As of November 27, 2024, Spotify restricted access to the Related Artists endpoint
+// for new apps and apps in development mode. This fallback ensures similar artists are still shown.
+// See: https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api
 async function getLastfmSimilarArtists(artistName, limit) {
   try {
     const url = new URL(LASTFM_BASE_URL);
@@ -220,27 +223,66 @@ async function getLastfmSimilarArtists(artistName, limit) {
   }
 }
 
-export async function getRelatedArtists(artistName, { limit = 20 } = {}) {
+// Get related/similar artists
+// NOTE: Spotify restricted the Related Artists endpoint for development mode apps as of Nov 27, 2024.
+// This function will attempt Spotify first (for apps with extended access) then fall back to Last.fm.
+// See: https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api
+export async function getRelatedArtists(artistName, { limit = 20, artistId = null } = {}) {
   try {
-    const [token, spotifyArtist] = await Promise.all([
-      getSpotifyToken(),
-      findSpotifyArtistByName(artistName),
-    ]);
+    const token = await getSpotifyToken();
+    let spotifyArtistId = artistId;
 
-    if (!spotifyArtist || !spotifyArtist.id) {
+    // Validation: Spotify IDs are alphanumeric ~22 chars.
+    // If it looks like a UUID (hyphens), or is too long/short, or has spaces, or equals the name, ignore it.
+    if (spotifyArtistId) {
+        const isUuid = spotifyArtistId.includes('-');
+        const isName = spotifyArtistId === artistName;
+        const hasSpaces = spotifyArtistId.includes(' ');
+        const isBadLength = spotifyArtistId.length < 15 || spotifyArtistId.length > 30;
+
+        if (isUuid || isName || hasSpaces || isBadLength) {
+            spotifyArtistId = null;
+        }
+    }
+
+    // If no ID provided (or filtered out), search by name
+    if (!spotifyArtistId) {
+      const spotifyArtist = await findSpotifyArtistByName(artistName);
+      if (spotifyArtist) {
+        spotifyArtistId = spotifyArtist.id;
+      }
+    }
+
+    if (!spotifyArtistId) {
+      // Fallback to Last.fm if we can't find a Spotify ID
       return getLastfmSimilarArtists(artistName, limit);
     }
 
-    const url = `${SPOTIFY_ARTISTS_URL}/${encodeURIComponent(spotifyArtist.id)}/related-artists`;
+    const url = `${SPOTIFY_ARTISTS_URL}/${encodeURIComponent(spotifyArtistId)}/related-artists`;
 
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
     });
 
+    // If the ID was bad (404/400), try resolving by name if we haven't already
+    if (!res.ok && (res.status === 404 || res.status === 400) && artistId && artistId === spotifyArtistId) {
+      const spotifyArtist = await findSpotifyArtistByName(artistName);
+      
+      if (spotifyArtist) {
+        const retryUrl = `${SPOTIFY_ARTISTS_URL}/${encodeURIComponent(spotifyArtist.id)}/related-artists`;
+        const retryRes = await fetch(retryUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (retryRes.ok) {
+          res = retryRes;
+        }
+      }
+    }
+
     if (!res.ok) {
-      console.warn(`Spotify related-artists error ${res.status} for ${artistName}. Falling back to Last.fm.`);
+      // 404 is expected for development mode apps after Nov 27, 2024 - fall back to Last.fm
       return getLastfmSimilarArtists(artistName, limit);
     }
 

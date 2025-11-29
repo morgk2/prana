@@ -393,7 +393,7 @@ export default function ArtistPage({ route, navigation }) {
           getArtistTopAlbums(artist.name, { limit: 50 }),
           getArtistSingles(artist.name, { limit: 50 }),
           getArtistInfo(artist.name),
-          getRelatedArtists(artist.name, { limit: 10 }),
+          getRelatedArtists(artist.name, { limit: 10, artistId: artist.mbid }),
         ]);
 
         setTopTracks(tracks ?? []);
