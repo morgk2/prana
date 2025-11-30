@@ -123,12 +123,7 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
             if (onSlidingComplete) onSlidingComplete(newValue);
         }
     };
-    
-    let progressRatio = 0;
-    if (maximumValue > 0 && isFinite(value)) {
-        progressRatio = Math.min(1, Math.max(0, value / maximumValue));
-    }
-    
+    const progress = maximumValue > 0 ? Math.min(1, Math.max(0, value / maximumValue)) : 0;
     return (
         <View
             style={{ height: 40, justifyContent: 'center' }}
@@ -153,7 +148,7 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
                     style={{
                         position: 'absolute',
                         left: 0,
-                        width: isLoading ? '100%' : `${progressRatio * 100}%`,
+                        width: isLoading ? '100%' : `${progress * 100}%`,
                         height: heightAnim,
                         backgroundColor: progressColor,
                         borderRadius: 999,
@@ -214,8 +209,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         detail: '#ffffff',
     };
 
-    const progressState = useProgress();
-    const progress = progressState || { position: 0, duration: 0, buffered: 0 };
+    const progress = useProgress(200);
     const playbackState = usePlaybackState();
     const isPlaying = playbackState.state === State.Playing || playbackState.state === State.Buffering;
 
@@ -252,7 +246,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
 
     // Sync optimistic position
     useEffect(() => {
-        if (optimisticPosition !== null && typeof progress.position === 'number') {
+        if (optimisticPosition !== null) {
             const diff = Math.abs(progress.position - optimisticPosition);
             if (diff < 1.0) {
                 setOptimisticPosition(null);
@@ -461,6 +455,82 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const togglePlay = useCallback(async () => {
         if (isPlaying) {
             await TrackPlayer.pause();
+        } else {
+            await TrackPlayer.play();
+        }
+    }, [isPlaying]);
+
+    const skipNext = useCallback(() => {
+        if (!onTrackChange || !queue || queue.length === 0) return;
+        const nextIndex = queueIndex + 1;
+        if (nextIndex < queue.length) {
+            setIsTrackLoading(true);
+            // Animate artwork sliding left
+            Animated.timing(slideAnim, { toValue: -1, duration: 300, useNativeDriver: true }).start(() => {
+                onTrackChange(queue[nextIndex], nextIndex);
+                slideAnim.setValue(1);
+                Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
+            });
+        }
+    }, [onTrackChange, queue, queueIndex, slideAnim]);
+
+    const skipPrevious = useCallback(async () => {
+        if (progress.position >= 5) {
+            await TrackPlayer.seekTo(0);
+            return;
+        }
+
+        if (!onTrackChange || !queue || queue.length === 0) return;
+        const prevIndex = queueIndex - 1;
+        if (prevIndex >= 0) {
+            setIsTrackLoading(true);
+            // Animate artwork sliding right
+            Animated.timing(slideAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start(() => {
+                onTrackChange(queue[prevIndex], prevIndex);
+                slideAnim.setValue(-1);
+                Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
+            });
+        } else {
+            await TrackPlayer.seekTo(0);
+        }
+    }, [onTrackChange, queue, queueIndex, slideAnim, progress.position]);
+
+    const onSeekStart = () => {
+        setIsScrubbing(true);
+        isScrubbingRef.current = true;
+        setScrubbingPosition(progress.position);
+    };
+
+    const onSeekUpdate = (val) => {
+        // Update the scrubbing position for real-time visual feedback
+        setScrubbingPosition(val);
+    };
+
+    const onSeekComplete = async (val) => {
+        setOptimisticPosition(val);
+        setIsScrubbing(false);
+        isScrubbingRef.current = false;
+        try {
+            await TrackPlayer.seekTo(val);
+        } catch (e) {
+            console.warn('Error seeking', e);
+        }
+    };
+
+    const toggleLyrics = () => {
+        LayoutAnimation.configureNext({
+            duration: 300,
+            update: {
+                type: LayoutAnimation.Types.easeInEaseOut,
+            },
+        });
+        setShowLyrics(!showLyrics);
+    };
+
+    const toggleShuffle = () => {
+        const newShuffleState = !isShuffleEnabled;
+        setIsShuffleEnabled(newShuffleState);
+        if (newShuffleState && queue.length > 1) {
             const currentTrack = queue[queueIndex];
             const otherTracks = queue.filter((_, idx) => idx !== queueIndex);
             for (let i = otherTracks.length - 1; i > 0; i--) {

@@ -21,7 +21,7 @@ import LibraryPlaylists from './src/components/LibraryPlaylists';
 import AddPlaylist from './src/components/AddPlaylist';
 import PlaylistPage from './src/components/PlaylistPage';
 import ImportExternalPlaylist from './src/components/ImportExternalPlaylist';
-// import SongPlayerV2 from './src/components/SongPlayerV2';
+import SongPlayerV2 from './src/components/SongPlayerV2';
 import HomeScreen from './src/components/HomeScreen';
 import ModulesPage from './src/components/ModulesPage';
 import PlayerColorsPage from './src/components/PlayerColorsPage';
@@ -34,7 +34,7 @@ import * as Notifications from 'expo-notifications';
 import { clearArtworkCacheManually, getArtworkWithFallback } from './src/utils/artworkFallback';
 import { clearCache as clearTidalCache } from './src/utils/tidalCache';
 import { getPlayableTrack } from './src/utils/tidalStreamHelper';
-// import { setupPlayer } from './src/services/SetupService';
+import { setupPlayer } from './src/services/SetupService';
 
 
 Notifications.setNotificationHandler({
@@ -1456,7 +1456,7 @@ function AppContent() {
   useEffect(() => {
     const initModules = async () => {
       await ModuleManager.init();
-      // await setupPlayer();
+      await setupPlayer();
     };
     initModules();
   }, []);
