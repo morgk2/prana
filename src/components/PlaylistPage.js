@@ -65,6 +65,50 @@ export default function PlaylistPage({ route, navigation }) {
     const trackRefs = useRef({});
     const trackScaleAnims = useRef({});
 
+    // Helper function to check if a track is local/downloaded
+    const isTrackLocal = (track) => {
+        const libraryTrack = library?.find(t =>
+            (t.uri && track.uri && t.uri === track.uri) ||
+            (t.name === track.name && (t.artist?.name || t.artist) === (track.artist?.name || track.artist))
+        );
+        
+        const isDownloaded = downloadedTracks.has(track.id) || downloadedTracks.has(track.name) || (track.uri && downloadedTracks.has(track.uri));
+        const recentUri = recentDownloads ? (recentDownloads[track.id] || recentDownloads[track.name]) : null;
+        
+        return (!!libraryTrack && libraryTrack.uri && libraryTrack.uri.startsWith('file://')) || 
+               isDownloaded || 
+               !!recentUri || 
+               (track.uri && track.uri.startsWith('file://'));
+    };
+
+    // Helper function to resolve track with downloaded URI
+    const resolveTrackWithDownload = (track) => {
+        // Find the library track with the local file URI
+        const libraryTrack = library?.find(t =>
+            (t.uri && track.uri && t.uri === track.uri) ||
+            (t.name === track.name && (t.artist?.name || t.artist) === (track.artist?.name || track.artist))
+        );
+        
+        // Check for recent downloads
+        const recentUri = recentDownloads ? (recentDownloads[track.id] || recentDownloads[track.name]) : null;
+        
+        // Use libraryTrack if available (has local file URI), otherwise merge recentUri into track
+        return libraryTrack || (recentUri ? { ...track, uri: recentUri } : track);
+    };
+
+    // Helper function to filter and resolve tracks (only local if offline)
+    const getPlayableTracks = (tracks) => {
+        let filtered = tracks;
+        
+        // If offline (no Tidal streaming), filter to only local tracks
+        if (!useTidalForUnowned) {
+            filtered = tracks.filter(t => isTrackLocal(t));
+        }
+        
+        // Resolve all tracks with downloaded URIs
+        return filtered.map(t => resolveTrackWithDownload(t));
+    };
+
     const handleUnownedTrackPress = async (track, index, shouldQueuePlaylist) => {
         if (!useTidalForUnowned) {
             console.log('[PlaylistPage] Tidal streaming is disabled');
@@ -111,7 +155,8 @@ export default function PlaylistPage({ route, navigation }) {
     const confirmAndPlayTrack = (track, index, isLocal) => {
         // TEMPORARILY DISABLED: Always play single track only (no queue prompt)
         if (isLocal) {
-            if (onTrackPress) onTrackPress(track, [track], 0);
+            const trackToPlay = resolveTrackWithDownload(track);
+            if (onTrackPress) onTrackPress(trackToPlay, [trackToPlay], 0);
         } else {
             handleUnownedTrackPress(track, index, false);
         }
@@ -258,12 +303,27 @@ export default function PlaylistPage({ route, navigation }) {
     const handleDeletePlaylist = () => {
         if (deletePlaylist) {
             deletePlaylist(playlist.id);
+            closePlaylistMenu();
             navigation.goBack();
             if (showNotification) {
                 showNotification(`Playlist "${playlist.name}" deleted`);
             }
         }
+    };
+
+    const handleAddPlaylistToQueue = () => {
         closePlaylistMenu();
+        if (addAlbumToQueue && playlist.tracks && playlist.tracks.length > 0) {
+            // Filter to only local tracks if offline, then resolve URIs
+            const playableTracks = getPlayableTracks(playlist.tracks);
+            if (playableTracks.length === 0) {
+                if (showNotification) {
+                    showNotification('No downloaded tracks in this playlist', 'error');
+                }
+                return;
+            }
+            addAlbumToQueue(playableTracks, false);
+        }
     };
 
     const openContextMenu = (track, trackKey) => {
@@ -320,7 +380,8 @@ export default function PlaylistPage({ route, navigation }) {
 
     const handleAddToQueue = () => {
         if (contextMenuTrack && addToQueue) {
-            addToQueue(contextMenuTrack);
+            const trackToAdd = resolveTrackWithDownload(contextMenuTrack);
+            addToQueue(trackToAdd);
             closeContextMenu();
         }
     };
@@ -395,7 +456,15 @@ export default function PlaylistPage({ route, navigation }) {
                                         if (togglePlay) togglePlay();
                                     } else {
                                         if (playlist.tracks.length > 0 && onTrackPress) {
-                                            onTrackPress(playlist.tracks[0], playlist.tracks, 0, false);
+                                            // Filter to only local tracks if offline, then resolve URIs
+                                            const playableTracks = getPlayableTracks(playlist.tracks);
+                                            if (playableTracks.length === 0) {
+                                                if (showNotification) {
+                                                    showNotification('No downloaded tracks in this playlist', 'error');
+                                                }
+                                                return;
+                                            }
+                                            onTrackPress(playableTracks[0], playableTracks, 0, false);
                                         }
                                     }
                                 }}
@@ -410,7 +479,15 @@ export default function PlaylistPage({ route, navigation }) {
                         style={[styles.actionButton, styles.shuffleButton, { borderColor: theme.border, backgroundColor: theme.card }]}
                         onPress={() => {
                             if (playlist.tracks.length > 0 && onTrackPress) {
-                                const shuffled = [...playlist.tracks].sort(() => Math.random() - 0.5);
+                                // Filter to only local tracks if offline, then resolve URIs and shuffle
+                                const playableTracks = getPlayableTracks(playlist.tracks);
+                                if (playableTracks.length === 0) {
+                                    if (showNotification) {
+                                        showNotification('No downloaded tracks in this playlist', 'error');
+                                    }
+                                    return;
+                                }
+                                const shuffled = [...playableTracks].sort(() => Math.random() - 0.5);
                                 onTrackPress(shuffled[0], shuffled, 0);
                             }
                         }}
@@ -456,7 +533,8 @@ export default function PlaylistPage({ route, navigation }) {
                                         theme={theme}
                                         onSwipeLeft={() => {
                                             if (addToQueue) {
-                                                addToQueue(track);
+                                                const trackToAdd = resolveTrackWithDownload(track);
+                                                addToQueue(trackToAdd);
                                             }
                                         }}
                                     >
@@ -620,8 +698,13 @@ export default function PlaylistPage({ route, navigation }) {
                             },
                         ]}
                     >
+                        <Pressable style={styles.contextMenuItem} onPress={handleAddPlaylistToQueue}>
+                            <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Add to Queue</Text>
+                            <Ionicons name="list-outline" size={20} color={theme.primaryText} />
+                        </Pressable>
                         {!playlist.isDefault && (
                             <>
+                                <View style={[styles.contextMenuDivider, { backgroundColor: theme.border }]} />
                                 <Pressable style={styles.contextMenuItem} onPress={handleEditPlaylist}>
                                     <Text style={[styles.contextMenuText, { color: theme.primaryText }]}>Edit Playlist</Text>
                                     <Ionicons name="pencil-outline" size={20} color={theme.primaryText} />

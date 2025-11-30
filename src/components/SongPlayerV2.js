@@ -209,7 +209,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         detail: '#ffffff',
     };
 
-    const progress = useProgress();
+    const progress = useProgress(200);
     const playbackState = usePlaybackState();
     const isPlaying = playbackState.state === State.Playing || playbackState.state === State.Buffering;
 
@@ -235,6 +235,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const [showLyrics, setShowLyrics] = useState(false);
     const [isLyricsRendered, setIsLyricsRendered] = useState(false);
     const [isTrackLoading, setIsTrackLoading] = useState(false);
+    const [optimisticPosition, setOptimisticPosition] = useState(null);
 
     const lastTrackSignature = useRef('');
     const resolvedDownloadUri = React.useMemo(() => {
@@ -242,6 +243,16 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         const tid = track.id || track.name;
         return recentDownloads?.[tid] || recentDownloads?.[track.name];
     }, [recentDownloads, track?.id, track?.name]);
+
+    // Sync optimistic position
+    useEffect(() => {
+        if (optimisticPosition !== null) {
+            const diff = Math.abs(progress.position - optimisticPosition);
+            if (diff < 1.0) {
+                setOptimisticPosition(null);
+            }
+        }
+    }, [progress.position, optimisticPosition]);
 
     // Refs
     const queueRef = useRef(queue);
@@ -463,7 +474,12 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         }
     }, [onTrackChange, queue, queueIndex, slideAnim]);
 
-    const skipPrevious = useCallback(() => {
+    const skipPrevious = useCallback(async () => {
+        if (progress.position >= 5) {
+            await TrackPlayer.seekTo(0);
+            return;
+        }
+
         if (!onTrackChange || !queue || queue.length === 0) return;
         const prevIndex = queueIndex - 1;
         if (prevIndex >= 0) {
@@ -474,8 +490,10 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                 slideAnim.setValue(-1);
                 Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
             });
+        } else {
+            await TrackPlayer.seekTo(0);
         }
-    }, [onTrackChange, queue, queueIndex, slideAnim]);
+    }, [onTrackChange, queue, queueIndex, slideAnim, progress.position]);
 
     const onSeekStart = () => {
         setIsScrubbing(true);
@@ -489,13 +507,13 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     };
 
     const onSeekComplete = async (val) => {
+        setOptimisticPosition(val);
+        setIsScrubbing(false);
+        isScrubbingRef.current = false;
         try {
             await TrackPlayer.seekTo(val);
         } catch (e) {
             console.warn('Error seeking', e);
-        } finally {
-            setIsScrubbing(false);
-            isScrubbingRef.current = false;
         }
     };
 
@@ -724,7 +742,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const dismissOpacity = dismissAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.5, 0] });
 
     const canSkipNext = queue && queue.length > 0 && queueIndex < queue.length - 1;
-    const canSkipPrevious = queue && queue.length > 0 && queueIndex > 0;
+    const canSkipPrevious = queue && queue.length > 0;
 
     return (
         <Animated.View
@@ -851,7 +869,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
 
                         <View style={styles.progressContainer}>
                             <CustomSlider
-                                value={isScrubbing ? scrubbingPosition : progress.position}
+                                value={isScrubbing ? scrubbingPosition : (optimisticPosition !== null ? optimisticPosition : progress.position)}
                                 maximumValue={progress.duration || 1}
                                 onSlidingStart={onSeekStart}
                                 onValueChange={onSeekUpdate}
@@ -861,7 +879,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
                                 progressColor={colors.detail}
                             />
                             <View style={styles.timeRow}>
-                                <Text style={[styles.timeText, { color: colors.detail }]}>{formatTime(isScrubbing ? scrubbingPosition : progress.position)}</Text>
+                                <Text style={[styles.timeText, { color: colors.detail }]}>{formatTime(isScrubbing ? scrubbingPosition : (optimisticPosition !== null ? optimisticPosition : progress.position))}</Text>
                                 <Text style={[styles.timeText, { color: colors.detail }]}>{formatTime(progress.duration)}</Text>
                             </View>
                         </View>

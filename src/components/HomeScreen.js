@@ -433,12 +433,23 @@ export default function HomeScreen({ route }) {
               {/* 3D Cover Flow Scene */}
               <View style={styles.scene} {...panResponder.panHandlers}>
                 {libraryAlbums.map((album, index) => {
+                  // Optimization: Only render items close to the current index
+                  if (Math.abs(currentIndex - index) > 10) return null;
+
                   const isActive = index === currentIndex;
                   const inputRange = [index - 2, index - 1, index, index + 1, index + 2];
                   const scale = scrollX.interpolate({ inputRange, outputRange: [0.8, 0.8, 1, 0.8, 0.8], extrapolate: 'clamp' });
                   const rotateY = scrollX.interpolate({ inputRange, outputRange: ['-75deg', '-75deg', '0deg', '75deg', '75deg'], extrapolate: 'clamp' });
                   const translateX = scrollX.interpolate({ inputRange, outputRange: [130, 100, 0, -100, -130], extrapolate: 'clamp' });
-                  const opacity = scrollX.interpolate({ inputRange, outputRange: [1, 1, 1, 1, 1], extrapolate: 'clamp' });
+                  
+                  // Fade out items further away to hide the stack ends
+                  const opacityInputRange = [index - 4, index - 2, index, index + 2, index + 4];
+                  const opacity = scrollX.interpolate({ 
+                    inputRange: opacityInputRange, 
+                    outputRange: [0, 1, 1, 1, 0], 
+                    extrapolate: 'clamp' 
+                  });
+                  
                   const zIndex = 100 - Math.abs(currentIndex - index);
                   const reflectionOpacity = scrollX.interpolate({ inputRange, outputRange: [0.1, 0.3, 0.5, 0.3, 0.1], extrapolate: 'clamp' });
 

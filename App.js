@@ -2406,9 +2406,8 @@ function AppContent() {
       openTrackPlayer(track, [track], 0);
       showQueueNotification(`Playing "${track.name}"`);
     } else {
-      // Add to the end of the current queue
-      const newQueue = [...currentQueue, track];
-      setCurrentQueue(newQueue);
+      // Add to the end of the current queue using functional update to avoid stale state
+      setCurrentQueue(prevQueue => [...prevQueue, track]);
       showQueueNotification(`Added "${track.name}" to queue`);
     }
   };
@@ -2424,20 +2423,23 @@ function AppContent() {
       openTrackPlayer(tracks[0], tracks, 0);
       showQueueNotification(`Playing album (${tracks.length} songs)`);
     } else {
-      // Add all tracks to the end of the current queue
-      const newQueue = [...currentQueue, ...tracks];
-      setCurrentQueue(newQueue);
-
-      if (playImmediately) {
-        const newIndex = currentQueue.length; // Index of the first added track
-        setCurrentTrack(tracks[0]);
-        setCurrentQueueIndex(newIndex);
-        setShouldAutoPlay(true);
-        setIsPlayerExpanded(true);
-        showQueueNotification(`Playing "${tracks[0].name}"`);
-      } else {
-        showQueueNotification(`Added ${tracks.length} songs to queue`);
-      }
+      // Add all tracks to the end of the current queue using functional update
+      setCurrentQueue(prevQueue => {
+        const newQueue = [...prevQueue, ...tracks];
+        
+        if (playImmediately) {
+          const newIndex = prevQueue.length; // Index of the first added track
+          setCurrentTrack(tracks[0]);
+          setCurrentQueueIndex(newIndex);
+          setShouldAutoPlay(true);
+          setIsPlayerExpanded(true);
+          showQueueNotification(`Playing "${tracks[0].name}"`);
+        } else {
+          showQueueNotification(`Added ${tracks.length} songs to queue`);
+        }
+        
+        return newQueue;
+      });
     }
   };
 

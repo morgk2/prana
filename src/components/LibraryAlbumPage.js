@@ -222,6 +222,15 @@ export default function LibraryAlbumPage({ route, navigation }) {
     });
   }, [spotifyTracks, album.tracks, library, album.artwork, album.artist, album.title, downloadedTracks]);
 
+  // Helper function to filter tracks for offline mode
+  const getPlayableTracks = (tracks) => {
+    // If offline (no Tidal streaming), filter to only local tracks
+    if (!useTidalForUnowned) {
+      return tracks.filter(t => t.isLocal);
+    }
+    return tracks;
+  };
+
   useEffect(() => {
     if (isFocused && libraryAlbums) {
       const updatedAlbum = libraryAlbums.find(a => a.key === initialAlbum.key);
@@ -708,8 +717,16 @@ export default function LibraryAlbumPage({ route, navigation }) {
                     if (togglePlay) togglePlay();
                   } else {
                     if (allTracks.length > 0 && onTrackPress) {
+                      // Filter to only local tracks if offline
+                      const playableTracks = getPlayableTracks(allTracks);
+                      if (playableTracks.length === 0) {
+                        if (showNotification) {
+                          showNotification('No downloaded tracks in this album', 'error');
+                        }
+                        return;
+                      }
                       // Play first track with full queue
-                      onTrackPress(allTracks[0], allTracks, 0, false);
+                      onTrackPress(playableTracks[0], playableTracks, 0, false);
                     }
                   }
                 }}
@@ -724,8 +741,16 @@ export default function LibraryAlbumPage({ route, navigation }) {
             style={[styles.actionButton, styles.shuffleButton, { borderColor: theme.border, backgroundColor: theme.card }]}
             onPress={() => {
               if (allTracks.length > 0 && onTrackPress) {
+                // Filter to only local tracks if offline, then shuffle
+                const playableTracks = getPlayableTracks(allTracks);
+                if (playableTracks.length === 0) {
+                  if (showNotification) {
+                    showNotification('No downloaded tracks in this album', 'error');
+                  }
+                  return;
+                }
                 // Shuffle the tracks and play from the beginning
-                const shuffled = [...allTracks].sort(() => Math.random() - 0.5);
+                const shuffled = [...playableTracks].sort(() => Math.random() - 0.5);
                 onTrackPress(shuffled[0], shuffled, 0);
               }
             }}
@@ -1300,7 +1325,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
               {/* Header */}
               <View style={styles.sheetHeader}>
                 <Pressable onPress={closePlaylistSheet} style={styles.sheetHeaderButton} hitSlop={10}>
-                  <Text style={[styles.sheetHeaderButtonText, { color: theme.primary }]}>Cancel</Text>
+                  <Text style={[styles.sheetHeaderButtonText, { color: theme.accent }]}>Cancel</Text>
                 </Pressable>
                 <Text style={[styles.sheetTitle, { color: theme.primaryText }]}>
                   Add to Playlist
@@ -1311,7 +1336,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
                   style={[styles.sheetHeaderButton, { opacity: selectedPlaylists.size > 0 ? 1 : 0.3 }]}
                   hitSlop={10}
                 >
-                  <Text style={[styles.sheetHeaderButtonText, { color: theme.primary, fontWeight: '600' }]}>Done</Text>
+                  <Text style={[styles.sheetHeaderButtonText, { color: theme.accent, fontWeight: '600' }]}>Done</Text>
                 </Pressable>
               </View>
 
@@ -1335,8 +1360,8 @@ export default function LibraryAlbumPage({ route, navigation }) {
                     });
                   }}
                 >
-                  <View style={[styles.createPlaylistIcon, { backgroundColor: theme.primary }]}>
-                    <Ionicons name="add" size={24} color="#fff" />
+                  <View style={[styles.createPlaylistIcon, { backgroundColor: theme.accent }]}>
+                    <Ionicons name="add" size={24} color={theme.background} />
                   </View>
                   <Text style={[styles.createPlaylistText, { color: theme.primaryText }]}>
                     Create New Playlist
@@ -1368,7 +1393,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
 
                         {/* Selection Indicator */}
                         {isSelected ? (
-                          <Ionicons name="checkmark-circle" size={24} color={theme.primary} />
+                          <Ionicons name="checkmark-circle" size={24} color={theme.accent} />
                         ) : (
                           <View style={[styles.circleOutline, { borderColor: theme.secondaryText }]} />
                         )}

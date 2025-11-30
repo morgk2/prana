@@ -532,7 +532,7 @@ export default function LibrarySongs({ route, navigation }) {
                             
                             <View style={styles.sheetHeader}>
                                 <Pressable onPress={closePlaylistSheet} style={styles.sheetHeaderButton} hitSlop={10}>
-                                    <Text style={[styles.sheetHeaderButtonText, { color: theme.primary }]}>Cancel</Text>
+                                    <Text style={[styles.sheetHeaderButtonText, { color: theme.accent }]}>Cancel</Text>
                                 </Pressable>
                                 <Text style={[styles.sheetTitle, { color: theme.primaryText }]}>
                                     Add to Playlist
@@ -543,7 +543,7 @@ export default function LibrarySongs({ route, navigation }) {
                                     style={[styles.sheetHeaderButton, { opacity: selectedPlaylists.size > 0 ? 1 : 0.3 }]}
                                     hitSlop={10}
                                 >
-                                    <Text style={[styles.sheetHeaderButtonText, { color: theme.primary, fontWeight: '600' }]}>Done</Text>
+                                    <Text style={[styles.sheetHeaderButtonText, { color: theme.accent, fontWeight: '600' }]}>Done</Text>
                                 </Pressable>
                             </View>
                             
@@ -562,8 +562,8 @@ export default function LibrarySongs({ route, navigation }) {
                                         });
                                     }}
                                 >
-                                    <View style={[styles.createPlaylistIcon, { backgroundColor: theme.primary }]}>
-                                        <Ionicons name="add" size={24} color="#fff" />
+                                    <View style={[styles.createPlaylistIcon, { backgroundColor: theme.accent }]}>
+                                        <Ionicons name="add" size={24} color={theme.background} />
                                     </View>
                                     <Text style={[styles.createPlaylistText, { color: theme.primaryText }]}>
                                         Create New Playlist
@@ -594,7 +594,7 @@ export default function LibrarySongs({ route, navigation }) {
                                                 </View>
                                                 
                                                 {isSelected ? (
-                                                    <Ionicons name="checkmark-circle" size={24} color={theme.primary} />
+                                                    <Ionicons name="checkmark-circle" size={24} color={theme.accent} />
                                                 ) : (
                                                     <View style={[styles.circleOutline, { borderColor: theme.secondaryText }]} />
                                                 )}
