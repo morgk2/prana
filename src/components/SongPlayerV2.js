@@ -209,7 +209,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         detail: '#ffffff',
     };
 
-    const progress = useProgress(200);
+    const progress = useProgress();
     const playbackState = usePlaybackState();
     const isPlaying = playbackState.state === State.Playing || playbackState.state === State.Buffering;
 
@@ -469,58 +469,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
             Animated.timing(slideAnim, { toValue: -1, duration: 300, useNativeDriver: true }).start(() => {
                 onTrackChange(queue[nextIndex], nextIndex);
                 slideAnim.setValue(1);
-                Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
-            });
-        }
-    }, [onTrackChange, queue, queueIndex, slideAnim]);
-
-    const skipPrevious = useCallback(async () => {
-        if (progress.position >= 5) {
-            await TrackPlayer.seekTo(0);
-            return;
-        }
-
-        if (!onTrackChange || !queue || queue.length === 0) return;
-        const prevIndex = queueIndex - 1;
-        if (prevIndex >= 0) {
-            setIsTrackLoading(true);
-            // Animate artwork sliding right
-            Animated.timing(slideAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start(() => {
-                onTrackChange(queue[prevIndex], prevIndex);
-                slideAnim.setValue(-1);
-                Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
-            });
-        } else {
-            await TrackPlayer.seekTo(0);
-        }
-    }, [onTrackChange, queue, queueIndex, slideAnim, progress.position]);
-
-    const onSeekStart = () => {
-        setIsScrubbing(true);
-        isScrubbingRef.current = true;
-        setScrubbingPosition(progress.position);
-    };
-
-    const onSeekUpdate = (val) => {
-        // Update the scrubbing position for real-time visual feedback
-        setScrubbingPosition(val);
-    };
-
-    const onSeekComplete = async (val) => {
-        setOptimisticPosition(val);
-        setIsScrubbing(false);
-        isScrubbingRef.current = false;
-        try {
-            await TrackPlayer.seekTo(val);
-        } catch (e) {
-            console.warn('Error seeking', e);
-        }
-    };
-
-    const toggleLyrics = () => {
-        LayoutAnimation.configureNext({
-            duration: 300,
-            update: {
                 type: LayoutAnimation.Types.easeInEaseOut,
             },
         });
