@@ -3,6 +3,7 @@
     "name": "8SPINE",
     "slug": "8SPINE",
     "version": "1.0.0",
+    "scheme": "eightspine",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -20,6 +21,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.morgk.8spine",
       "infoPlist": {
+        "NSAppleMusicUsageDescription": "Allow Prana to access your music library to play songs.",
         "UIBackgroundModes": [
           "audio"
         ]

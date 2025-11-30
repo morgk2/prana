@@ -2,7 +2,8 @@
 // This file keeps the old Last.fm-style function names so App.js can stay mostly unchanged.
 // IMPORTANT: For production, move the Spotify client secret to a secure backend.
 
-const LASTFM_API_KEY = '4a9f5581a9cdf20a699f540aa52a95c9'; // Public shared key for demo purposes. Replace with your own!
+import { LASTFM_API_KEY, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET } from '../config/envConfig.js';
+
 const LASTFM_BASE_URL = 'https://ws.audioscrobbler.com/2.0/';
 
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -10,12 +11,6 @@ const SPOTIFY_SEARCH_URL = 'https://api.spotify.com/v1/search';
 const SPOTIFY_ARTISTS_URL = 'https://api.spotify.com/v1/artists';
 const SPOTIFY_ALBUMS_URL = 'https://api.spotify.com/v1/albums';
 const SPOTIFY_PLAYLISTS_URL = 'https://api.spotify.com/v1/playlists';
-
-// TEMP: hard-coded credentials for local/dev use only.
-// Replace these placeholders with your real Spotify client ID and secret.
-// DO NOT ship a production build with real secrets in the bundle.
-const SPOTIFY_CLIENT_ID = '3b04b56282cf497fbc68c6bf8cb51438';
-const SPOTIFY_CLIENT_SECRET = 'b89842acfa4d4ec4ad55bdac57a1e4a2';
 
 let spotifyAccessToken = null;
 let spotifyAccessTokenExpiresAt = 0;

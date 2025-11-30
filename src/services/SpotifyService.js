@@ -1,8 +1,26 @@
+import { Linking } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import CryptoJS from 'crypto-js';
+import { SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET } from '../config/envConfig.js';
 
-const SPOTIFY_CLIENT_ID = '3b04b56282cf497fbc68c6bf8cb51438';
-const SPOTIFY_CLIENT_SECRET = 'b89842acfa4d4ec4ad55bdac57a1e4a2';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SPOTIFY_API_URL = 'https://api.spotify.com/v1';
+
+// User Auth Config
+const REDIRECT_URI = 'eightspine://spotify-auth';
+const SCOPES = [
+    'user-library-read',
+    'playlist-read-private',
+    'playlist-read-collaborative',
+    'user-read-email',
+    'user-read-private'
+].join(' ');
+
+const STATE_KEY = 'spotify_auth_state';
+const CODE_VERIFIER_KEY = 'spotify_code_verifier';
+const USER_TOKEN_KEY = 'spotify_user_token';
+const USER_REFRESH_TOKEN_KEY = 'spotify_user_refresh_token';
+const USER_EXPIRATION_KEY = 'spotify_token_expiration';
 
 let spotifyAccessToken = null;
 let spotifyAccessTokenExpiresAt = 0;
@@ -201,5 +219,198 @@ export const getPlaylistDetails = async (playlistId) => {
     } catch (error) {
         console.error('Error fetching Spotify playlist details:', error);
         return null;
+    }
+};
+
+// ==========================================
+// User Authentication Flow (PKCE)
+// ==========================================
+
+function generateRandomString(length) {
+    let text = '';
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < length; i++) {
+        text += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return text;
+}
+
+function base64URLEncode(str) {
+    return str.toString(CryptoJS.enc.Base64)
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '');
+}
+
+function sha256(plain) {
+    return CryptoJS.SHA256(plain);
+}
+
+export const initiateSpotifyLogin = async () => {
+    const state = generateRandomString(16);
+    const codeVerifier = generateRandomString(128);
+    const codeChallenge = base64URLEncode(sha256(codeVerifier));
+
+    await AsyncStorage.setItem(STATE_KEY, state);
+    await AsyncStorage.setItem(CODE_VERIFIER_KEY, codeVerifier);
+
+    const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: SPOTIFY_CLIENT_ID,
+        scope: SCOPES,
+        redirect_uri: REDIRECT_URI,
+        state: state,
+        code_challenge_method: 'S256',
+        code_challenge: codeChallenge,
+    });
+
+    const authUrl = `https://accounts.spotify.com/authorize?${params.toString()}`;
+    await Linking.openURL(authUrl);
+};
+
+export const handleSpotifyCallback = async (url) => {
+    if (!url) return null;
+    
+    const queryString = url.split('?')[1];
+    if (!queryString) return null;
+
+    const params = new URLSearchParams(queryString);
+    const code = params.get('code');
+    const state = params.get('state');
+    const error = params.get('error');
+
+    if (error) {
+        throw new Error(`Spotify Auth Error: ${error}`);
+    }
+
+    const storedState = await AsyncStorage.getItem(STATE_KEY);
+    // if (state !== storedState) throw new Error('State mismatch');
+
+    const codeVerifier = await AsyncStorage.getItem(CODE_VERIFIER_KEY);
+    
+    const bodyParams = new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: REDIRECT_URI,
+        client_id: SPOTIFY_CLIENT_ID,
+        code_verifier: codeVerifier,
+        client_secret: SPOTIFY_CLIENT_SECRET
+    });
+
+    const res = await fetch(SPOTIFY_TOKEN_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: bodyParams.toString()
+    });
+
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Token Exchange Failed: ${errText}`);
+    }
+
+    const data = await res.json();
+    await storeUserTokens(data);
+    return data.access_token;
+};
+
+const storeUserTokens = async (data) => {
+    const now = Date.now();
+    await AsyncStorage.setItem(USER_TOKEN_KEY, data.access_token);
+    if (data.refresh_token) {
+        await AsyncStorage.setItem(USER_REFRESH_TOKEN_KEY, data.refresh_token);
+    }
+    await AsyncStorage.setItem(USER_EXPIRATION_KEY, (now + (data.expires_in || 3600) * 1000).toString());
+};
+
+export const getSpotifyUserToken = async () => {
+    const token = await AsyncStorage.getItem(USER_TOKEN_KEY);
+    const expiration = await AsyncStorage.getItem(USER_EXPIRATION_KEY);
+    const refreshToken = await AsyncStorage.getItem(USER_REFRESH_TOKEN_KEY);
+
+    if (!token || !expiration || !refreshToken) return null;
+
+    if (Date.now() > parseInt(expiration, 10) - 60000) {
+        return await refreshSpotifyUserToken(refreshToken);
+    }
+
+    return token;
+};
+
+const refreshSpotifyUserToken = async (refreshToken) => {
+    try {
+        const bodyParams = new URLSearchParams({
+            grant_type: 'refresh_token',
+            refresh_token: refreshToken,
+            client_id: SPOTIFY_CLIENT_ID,
+            client_secret: SPOTIFY_CLIENT_SECRET
+        });
+
+        const res = await fetch(SPOTIFY_TOKEN_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: bodyParams.toString()
+        });
+
+        if (!res.ok) throw new Error('Failed to refresh token');
+
+        const data = await res.json();
+        
+        if (!data.refresh_token) {
+            data.refresh_token = refreshToken;
+        }
+        
+        await storeUserTokens(data);
+        return data.access_token;
+    } catch (error) {
+        console.error('Token refresh failed', error);
+        await logoutSpotify();
+        return null;
+    }
+};
+
+export const logoutSpotify = async () => {
+    await AsyncStorage.multiRemove([USER_TOKEN_KEY, USER_REFRESH_TOKEN_KEY, USER_EXPIRATION_KEY, STATE_KEY, CODE_VERIFIER_KEY]);
+};
+
+export const getSpotifyUserProfile = async () => {
+    const token = await getSpotifyUserToken();
+    if (!token) return null;
+
+    const res = await fetch(`${SPOTIFY_API_URL}/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (!res.ok) return null;
+    return await res.json();
+};
+
+export const getUserPlaylists = async () => {
+    const token = await getSpotifyUserToken();
+    if (!token) return null;
+
+    try {
+        const res = await fetch(`${SPOTIFY_API_URL}/me/playlists?limit=50`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (!res.ok) throw new Error('Failed to fetch playlists');
+        const json = await res.json();
+        
+        // Return with image mapping compatible with ImportExternalPlaylist
+        return (json.items || []).map(p => ({
+             name: p.name,
+             id: p.id,
+             description: p.description,
+             image: p.images, // Keep raw images, mapping handled in component if needed
+             trackCount: p.tracks?.total || 0,
+             owner: p.owner?.display_name
+        }));
+    } catch (e) {
+        console.error(e);
+        return [];
     }
 };

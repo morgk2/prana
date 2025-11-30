@@ -1,7 +1,7 @@
 import { DownloadProvider, useDownload } from './src/context/DownloadContext';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TextInput, Button, ActivityIndicator, Image, FlatList, ScrollView, Pressable, useColorScheme, Animated, Modal, Alert, useWindowDimensions, Linking } from 'react-native';
+import { StyleSheet, Text, View, TextInput, Button, ActivityIndicator, Image, FlatList, ScrollView, Pressable, useColorScheme, Animated, Modal, Alert, useWindowDimensions, Linking, Switch } from 'react-native';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { NavigationContainer, StackActions } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -9,7 +9,9 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAudioMetadata } from './src/utils/audioMetadata';
-import { searchLastfmArtists, searchLastfmTracks, searchLastfmAlbums, getArtistTopTracks, getArtistTopAlbums, getAlbumInfo } from './src/api/lastfm';
+import { searchLastfmArtists, searchLastfmTracks, searchLastfmAlbums, getArtistTopTracks, getArtistTopAlbums, getAlbumInfo, getSpotifyPlaylist } from './src/api/lastfm';
+import { initiateSpotifyLogin, handleSpotifyCallback, getSpotifyUserToken, logoutSpotify, getSpotifyUserProfile, getUserPlaylists as getMySpotifyPlaylists } from './src/services/SpotifyService';
+
 import ArtistPage from './src/components/ArtistPage';
 import LibraryAlbumPage from './src/components/LibraryAlbumPage';
 import LibraryArtists from './src/components/LibraryArtists';
@@ -937,8 +939,222 @@ function AppearancePage({ route, navigation }) {
 }
 
 // Settings Page
+function SpotifySyncScreen({ route, navigation }) {
+  const { theme, addPlaylist, showNotification } = route.params;
+  const [user, setUser] = useState(null);
+  const [playlists, setPlaylists] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isImporting, setIsImporting] = useState(null);
+
+  useEffect(() => {
+    checkAuth();
+    
+    const handleUrl = async ({ url }) => {
+        if (url && url.startsWith('eightspine://spotify-auth')) {
+            try {
+                setLoading(true);
+                await handleSpotifyCallback(url);
+                await checkAuth();
+            } catch (e) {
+                Alert.alert('Auth Failed', e.message);
+            } finally {
+                setLoading(false);
+            }
+        }
+    };
+    
+    const sub = Linking.addEventListener('url', handleUrl);
+    // Check for initial URL
+    Linking.getInitialURL().then(url => {
+      if (url) handleUrl({ url });
+    });
+
+    return () => sub.remove();
+  }, []);
+
+  const checkAuth = async () => {
+    setLoading(true);
+    try {
+        const profile = await getSpotifyUserProfile();
+        if (profile) {
+            setUser(profile);
+            const myPlaylists = await getMySpotifyPlaylists();
+            setPlaylists(myPlaylists);
+        } else {
+            setUser(null);
+            setPlaylists([]);
+        }
+    } catch (e) {
+        console.error(e);
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  const handleLogin = async () => {
+      try {
+          await initiateSpotifyLogin();
+      } catch (e) {
+          Alert.alert('Error', 'Failed to start login');
+      }
+  };
+
+  const handleLogout = async () => {
+      await logoutSpotify();
+      setUser(null);
+      setPlaylists([]);
+  };
+
+  const importPlaylist = async (playlist) => {
+      setIsImporting(playlist.id);
+      try {
+           const fullPlaylist = await getSpotifyPlaylist(playlist.id);
+           
+            const newPlaylist = {
+              id: Date.now().toString() + Math.floor(Math.random() * 1000),
+              name: fullPlaylist.name,
+              description: fullPlaylist.description,
+              image: fullPlaylist.image?.[0]?.['#text'] || null,
+              tracks: fullPlaylist.tracks.map(t => ({
+                ...t,
+                artist: typeof t.artist === 'object' ? t.artist.name : t.artist
+              })),
+              createdAt: new Date().toISOString(),
+            };
+        
+            addPlaylist(newPlaylist);
+            if (showNotification) {
+                showNotification(`Imported "${fullPlaylist.name}"`);
+            } else {
+                Alert.alert('Success', `Imported "${fullPlaylist.name}"`);
+            }
+      } catch (e) {
+          Alert.alert('Error', 'Failed to import playlist');
+          console.error(e);
+      } finally {
+          setIsImporting(null);
+      }
+  };
+
+  return (
+      <View style={[styles.settingsPageContainer, { backgroundColor: theme.background }]}>
+        <View style={styles.settingsPageHeader}>
+           <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.backButtonContainer}>
+             <Ionicons name="chevron-back" size={32} color={theme.primaryText} />
+           </Pressable>
+           <Text style={[styles.settingsPageTitle, { color: theme.primaryText }]}>Spotify Sync</Text>
+        </View>
+        
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 100 }}>
+            {!user ? (
+                <View style={{ alignItems: 'center', marginTop: 50 }}>
+                    <Ionicons name="logo-spotify" size={80} color="#1DB954" style={{ marginBottom: 20 }} />
+                    <Text style={{ color: theme.primaryText, fontSize: 18, marginBottom: 30, textAlign: 'center' }}>
+                        Connect your Spotify account to sync your libraries and playlists.
+                    </Text>
+                    <Pressable
+                        style={{ backgroundColor: '#1DB954', paddingVertical: 12, paddingHorizontal: 32, borderRadius: 24 }}
+                        onPress={handleLogin}
+                    >
+                        <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Connect Spotify</Text>
+                    </Pressable>
+                </View>
+            ) : (
+                <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, backgroundColor: theme.card, padding: 16, borderRadius: 12 }}>
+                        {user.images?.[0]?.url ? (
+                            <Image source={{ uri: user.images[0].url }} style={{ width: 50, height: 50, borderRadius: 25, marginRight: 12 }} />
+                        ) : (
+                            <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#1DB954', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+                                <Text style={{ color: 'white', fontSize: 20, fontWeight: 'bold' }}>{user.display_name?.[0]}</Text>
+                            </View>
+                        )}
+                        <View style={{ flex: 1 }}>
+                            <Text style={{ color: theme.primaryText, fontSize: 16, fontWeight: '600' }}>{user.display_name}</Text>
+                            <Text style={{ color: theme.secondaryText }}>{user.email}</Text>
+                        </View>
+                        <Pressable onPress={handleLogout}>
+                            <Text style={{ color: theme.error, fontWeight: '600' }}>Disconnect</Text>
+                        </Pressable>
+                    </View>
+                    
+                    <Text style={{ color: theme.primaryText, fontSize: 18, fontWeight: '600', marginBottom: 16 }}>Your Playlists</Text>
+                    
+                    {loading ? (
+                        <ActivityIndicator color={theme.primaryText} />
+                    ) : (
+                        playlists.map(playlist => (
+                            <View key={playlist.id} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16, backgroundColor: theme.card, padding: 12, borderRadius: 8 }}>
+                                <Image 
+                                    source={{ uri: playlist.image?.[0]?.url }} 
+                                    style={{ width: 50, height: 50, borderRadius: 4, marginRight: 12, backgroundColor: theme.border }} 
+                                />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={{ color: theme.primaryText, fontWeight: '500' }} numberOfLines={1}>{playlist.name}</Text>
+                                    <Text style={{ color: theme.secondaryText, fontSize: 12 }}>{playlist.trackCount} tracks</Text>
+                                </View>
+                                <Pressable 
+                                    style={{ backgroundColor: theme.primaryText, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 }}
+                                    onPress={() => importPlaylist(playlist)}
+                                    disabled={isImporting === playlist.id}
+                                >
+                                    {isImporting === playlist.id ? (
+                                        <ActivityIndicator size="small" color={theme.background} />
+                                    ) : (
+                                        <Text style={{ color: theme.background, fontSize: 12, fontWeight: '600' }}>Import</Text>
+                                    )}
+                                </Pressable>
+                            </View>
+                        ))
+                    )}
+                </View>
+            )}
+        </ScrollView>
+      </View>
+  );
+}
+
+// Library Settings Page
+function LibrarySettingsPage({ route, navigation }) {
+  const { theme, encourageDiscovery, setEncourageDiscovery } = route.params;
+
+  return (
+    <View style={[styles.settingsPageContainer, { backgroundColor: theme.background }]}>
+      <View style={styles.settingsPageHeader}>
+        <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.backButtonContainer}>
+          <Ionicons name="chevron-back" size={32} color={theme.primaryText} />
+        </Pressable>
+        <Text style={[styles.settingsPageTitle, { color: theme.primaryText }]}>Library Settings</Text>
+      </View>
+
+      <ScrollView style={{ flex: 1 }}>
+        <View style={styles.settingsSection}>
+           <View style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+            <View style={styles.settingsRowLeft}>
+               <Ionicons name="compass-outline" size={24} color={theme.primaryText} />
+               <View>
+                  <Text style={[styles.settingsRowText, { color: theme.primaryText }]}>Encourage music discovery</Text>
+                  <Text style={{ color: theme.secondaryText, fontSize: 12, maxWidth: 250 }}>
+                    Help you find new music by suggesting related artists and tracks.
+                  </Text>
+               </View>
+            </View>
+             <Switch
+              value={encourageDiscovery}
+              onValueChange={setEncourageDiscovery}
+              trackColor={{ false: theme.border, true: theme.accent }}
+              thumbColor={encourageDiscovery ? theme.primaryText : '#f4f3f4'}
+            />
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+// Settings Page
 function SettingsPage({ route, navigation }) {
-  const { theme, library, libraryArtists, libraryAlbums, clearAllData, userTheme, setUserTheme, playerColorMode, setPlayerColorMode } = route.params;
+  const { theme, library, libraryArtists, libraryAlbums, clearAllData, userTheme, setUserTheme, playerColorMode, setPlayerColorMode, encourageDiscovery, setEncourageDiscovery } = route.params;
 
   return (
     <View style={[styles.settingsPageContainer, { backgroundColor: theme.background }]}>
@@ -976,7 +1192,7 @@ function SettingsPage({ route, navigation }) {
 
           <Pressable
             style={[styles.settingsRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}
-            onPress={() => {}}
+            onPress={() => navigation.navigate('LibrarySettings', { theme, encourageDiscovery, setEncourageDiscovery })}
           >
             <View style={styles.settingsRowLeft}>
               <Ionicons name="library-outline" size={24} color={theme.primaryText} />
@@ -1306,6 +1522,7 @@ function AppContent() {
   const [library, setLibrary] = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [libraryArtists, setLibraryArtists] = useState([]);
+  const [encourageDiscovery, setEncourageDiscovery] = useState(false);
   const libraryAlbums = useMemo(() => {
     const albumMap = new Map();
 
@@ -1528,6 +1745,9 @@ function AppContent() {
         if (settings.useTidalForUnowned !== undefined) {
           setUseTidalForUnowned(settings.useTidalForUnowned);
         }
+        if (settings.encourageDiscovery !== undefined) {
+          setEncourageDiscovery(settings.encourageDiscovery);
+        }
         if (settings.modules) {
           setModules(settings.modules);
         }
@@ -1537,6 +1757,10 @@ function AppContent() {
         if (settings.userTheme) {
           setUserTheme(settings.userTheme);
         }
+      } else {
+        // Default settings
+        setUseTidalForUnowned(false);
+        setEncourageDiscovery(false);
       }
     } catch (e) {
       console.warn('Failed to load settings', e);
@@ -1581,6 +1805,11 @@ function AppContent() {
       });
     }
   }, [currentTrack, currentQueue, currentQueueIndex]);
+
+  const updateEncourageDiscovery = async (value) => {
+    setEncourageDiscovery(value);
+    await saveSettings({ encourageDiscovery: value });
+  };
 
   const saveSettings = async (partialSettings) => {
     try {
@@ -3017,13 +3246,30 @@ function AppContent() {
                       playlists,
                       addTrackToPlaylist,
                       reloadArtwork,
+                      encourageDiscovery,
                     },
                   }}
                 />
               )}
             </RootStack.Screen>
             <RootStack.Screen name="Artist" component={ArtistPage} />
-            <RootStack.Screen name="Settings" component={SettingsPage} />
+            <RootStack.Screen
+              name="Settings"
+              children={(props) => (
+                <SettingsPage
+                  {...props}
+                  route={{
+                    ...props.route,
+                    params: {
+                      ...props.route.params,
+                      encourageDiscovery,
+                      setEncourageDiscovery: updateEncourageDiscovery,
+                    }
+                  }}
+                />
+              )}
+            />
+            <RootStack.Screen name="LibrarySettings" component={LibrarySettingsPage} />
             <RootStack.Screen
               name="Appearance"
               children={(props) => (
@@ -3106,6 +3352,7 @@ function AppContent() {
             <RootStack.Screen name="PlaylistPage" component={PlaylistPage} />
             <RootStack.Screen name="AddPlaylist" component={AddPlaylist} />
             <RootStack.Screen name="ImportExternalPlaylist" component={ImportExternalPlaylist} />
+            <RootStack.Screen name="SpotifySync" component={SpotifySyncScreen} />
           </RootStack.Navigator>
         </NavigationContainer>
 

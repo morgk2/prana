@@ -1,3 +1,5 @@
+import { PAXSENIX_API_KEY, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET } from '../config/envConfig.js';
+
 export const YTDL_MODULE_CODE = `
 /**
  * YTDL Module (PaxSenix + Spotify Search)
@@ -5,10 +7,10 @@ export const YTDL_MODULE_CODE = `
  */
 
 const API_BASE = 'https://api.paxsenix.org';
-const API_KEY = 'sk-paxsenix-BsjVL0-o7w0TEZhzSxcFCkispUuWMQ_cGfRWa6JMxGlOJxox';
+const API_KEY = '${PAXSENIX_API_KEY}';
 
-const SPOTIFY_CLIENT_ID = '3b04b56282cf497fbc68c6bf8cb51438';
-const SPOTIFY_CLIENT_SECRET = 'b89842acfa4d4ec4ad55bdac57a1e4a2';
+const SPOTIFY_CLIENT_ID = '${SPOTIFY_CLIENT_ID}';
+const SPOTIFY_CLIENT_SECRET = '${SPOTIFY_CLIENT_SECRET}';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SPOTIFY_SEARCH_URL = 'https://api.spotify.com/v1/search';
 

@@ -23,6 +23,7 @@ import SwipeableTrackRow from './SwipeableTrackRow';
 import { getPlayableTrack, getFreshTidalStream } from '../utils/tidalStreamHelper';
 import { useDownload } from '../context/DownloadContext';
 import { searchAlbums, getSpotifyAlbumDetails } from '../services/SpotifyService';
+import { getAppleSimilarArtists, searchAppleMusic } from '../services/AppleMusicService';
 
 // Waveform Component for Playing State
 const PlayingIndicator = ({ color }) => {
@@ -78,7 +79,7 @@ const PlayingIndicator = ({ color }) => {
 import ExplicitBadge from './ExplicitBadge';
 
 export default function LibraryAlbumPage({ route, navigation }) {
-  const { album: initialAlbum, theme, onTrackPress, libraryAlbums, library, openArtistByName, deleteTrack, updateTrack, addToQueue, addAlbumToQueue, currentTrack, isPlaying, togglePlay, useTidalForUnowned, addToLibrary, showNotification, playlists, addTrackToPlaylist, reloadArtwork } = route.params;
+  const { album: initialAlbum, theme, onTrackPress, libraryAlbums, library, openArtistByName, deleteTrack, updateTrack, addToQueue, addAlbumToQueue, currentTrack, isPlaying, togglePlay, useTidalForUnowned, addToLibrary, showNotification, playlists, addTrackToPlaylist, reloadArtwork, encourageDiscovery } = route.params;
   const loading = false;
   const isFocused = useIsFocused();
   const { height: screenHeight } = useWindowDimensions();
@@ -155,6 +156,9 @@ export default function LibraryAlbumPage({ route, navigation }) {
   const [spotifyTracks, setSpotifyTracks] = useState([]);
   const [albumMetadata, setAlbumMetadata] = useState(null);
   const [loadingSpotify, setLoadingSpotify] = useState(false);
+  const [suggestedAlbums, setSuggestedAlbums] = useState([]);
+  const [genres, setGenres] = useState([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const { activeDownloads, albumDownloads, downloadedTracks, recentDownloads, handleDownloadTrack, startAlbumDownload, cancelAlbumDownload } = useDownload();
 
   // Album Menu State
@@ -272,7 +276,37 @@ export default function LibraryAlbumPage({ route, navigation }) {
 
         // Search for the album on Spotify
         const artistName = typeof album.artist === 'object' ? album.artist?.name : album.artist;
-        const searchResults = await searchAlbums(album.title, artistName, 1);
+        let searchResults = await searchAlbums(album.title, artistName, 1);
+
+        // Fallback 1: If strict search fails, try with cleaned title (remove text in parens/brackets)
+        if (!searchResults || searchResults.length === 0) {
+          const cleanedTitle = album.title.replace(/[\(\[].*?[\)\]]/g, '').trim();
+          if (cleanedTitle !== album.title && cleanedTitle.length > 0) {
+            console.log(`Retrying Spotify search with cleaned title: "${cleanedTitle}"`);
+            searchResults = await searchAlbums(cleanedTitle, artistName, 1);
+          }
+        }
+
+        // Fallback 2: If still no results, try using only the primary artist (split by &, comma, feat)
+        if (!searchResults || searchResults.length === 0) {
+          // Split by common separators: comma, ampersand, 'feat.', 'ft.'
+          const primaryArtist = artistName.split(/,|&|\sfeat\.|\sft\./i)[0].trim();
+          
+          if (primaryArtist && primaryArtist !== artistName) {
+            console.log(`Retrying Spotify search with primary artist: "${primaryArtist}"`);
+            
+            // Try original title + primary artist
+            searchResults = await searchAlbums(album.title, primaryArtist, 1);
+            
+            // If that fails, try cleaned title + primary artist
+            if (!searchResults || searchResults.length === 0) {
+              const cleanedTitle = album.title.replace(/[\(\[].*?[\)\]]/g, '').trim();
+              if (cleanedTitle.length > 0) {
+                searchResults = await searchAlbums(cleanedTitle, primaryArtist, 1);
+              }
+            }
+          }
+        }
 
         if (!searchResults || searchResults.length === 0) {
           console.log('Spotify album search returned no results');
@@ -320,6 +354,119 @@ export default function LibraryAlbumPage({ route, navigation }) {
 
     fetchAlbumTracks();
   }, [album]);
+
+  // Fetch genres from Apple Music
+  useEffect(() => {
+    const fetchGenres = async () => {
+      if (!album || album.title === 'Unknown Album') return;
+
+      try {
+        const artistName = typeof album.artist === 'object' ? album.artist?.name : album.artist;
+        const query = `${album.title} ${artistName}`;
+        const results = await searchAppleMusic(query, 1, 'albums');
+
+        if (results && results.albums && results.albums.data.length > 0) {
+          const appleAlbum = results.albums.data[0];
+          if (appleAlbum.attributes && appleAlbum.attributes.genreNames) {
+            setGenres(appleAlbum.attributes.genreNames);
+          }
+        }
+      } catch (e) {
+        console.error("Error fetching genres from Apple Music", e);
+      }
+    };
+
+    fetchGenres();
+  }, [album]);
+
+  // Fetch suggested albums from similar artists
+  useEffect(() => {
+    const fetchSuggestedAlbums = async () => {
+      if (!encourageDiscovery || !album || album.title === 'Unknown Album') return;
+
+      setLoadingSuggestions(true);
+      try {
+        const artistName = typeof album.artist === 'object' ? album.artist?.name : album.artist;
+        
+        // Get similar artists from Apple Music
+        const similarArtists = await getAppleSimilarArtists(artistName, 5);
+        
+        if (!similarArtists || similarArtists.length < 2) {
+          setSuggestedAlbums([]);
+          return;
+        }
+
+        const allSuggestedAlbums = [];
+
+        // Helper function to filter albums not in library
+        const filterOutLibraryAlbums = (albums) => {
+          return albums.filter(appleAlbum => {
+            const albumName = appleAlbum.attributes.name.toLowerCase().trim();
+            const albumArtist = appleAlbum.attributes.artistName.toLowerCase().trim();
+            return !libraryAlbums.some(libAlbum => {
+              const libName = (libAlbum.title || libAlbum.name || '').toLowerCase().trim();
+              const libArtist = (typeof libAlbum.artist === 'object' ? libAlbum.artist.name : libAlbum.artist || '').toLowerCase().trim();
+              return libName === albumName && libArtist === albumArtist;
+            });
+          });
+        };
+
+        // 1. Get 2 albums from the original artist
+        try {
+          const originalArtistResults = await searchAppleMusic(artistName, 10, 'albums');
+          const originalAlbums = filterOutLibraryAlbums(originalArtistResults?.albums?.data || []);
+          allSuggestedAlbums.push(...originalAlbums.slice(0, 2));
+        } catch (err) {
+          console.error('Error fetching albums for original artist:', artistName, err);
+        }
+
+        // 2. Get 2 albums from the first similar artist
+        if (similarArtists[0]) {
+          try {
+            const similar1Results = await searchAppleMusic(similarArtists[0].name, 10, 'albums');
+            const similar1Albums = filterOutLibraryAlbums(similar1Results?.albums?.data || []);
+            allSuggestedAlbums.push(...similar1Albums.slice(0, 2));
+          } catch (err) {
+            console.error('Error fetching albums for similar artist 1:', similarArtists[0].name, err);
+          }
+        }
+
+        // 3. Get 2 albums from the second similar artist
+        if (similarArtists[1]) {
+          try {
+            const similar2Results = await searchAppleMusic(similarArtists[1].name, 10, 'albums');
+            const similar2Albums = filterOutLibraryAlbums(similar2Results?.albums?.data || []);
+            allSuggestedAlbums.push(...similar2Albums.slice(0, 2));
+          } catch (err) {
+            console.error('Error fetching albums for similar artist 2:', similarArtists[1].name, err);
+          }
+        }
+
+        // Normalize to app format
+        const normalizedAlbums = allSuggestedAlbums.map(appleAlbum => ({
+          id: appleAlbum.id,
+          name: appleAlbum.attributes.name,
+          title: appleAlbum.attributes.name,
+          artist: appleAlbum.attributes.artistName,
+          artwork: appleAlbum.attributes.artwork ? 
+            appleAlbum.attributes.artwork.url.replace('{w}', '400').replace('{h}', '400') : null,
+          releaseDate: appleAlbum.attributes.releaseDate,
+        }));
+
+        // Shuffle the albums
+        const shuffled = normalizedAlbums.sort(() => Math.random() - 0.5);
+
+        setSuggestedAlbums(shuffled);
+      } catch (error) {
+        console.error('Error fetching suggested albums:', error);
+        setSuggestedAlbums([]);
+      } finally {
+        setLoadingSuggestions(false);
+      }
+    };
+
+    fetchSuggestedAlbums();
+  }, [album, encourageDiscovery, libraryAlbums]);
 
   const openContextMenu = (track, trackKey, isLastItem = false) => {
     const ref = trackRefs.current[trackKey];
@@ -697,6 +844,7 @@ export default function LibraryAlbumPage({ route, navigation }) {
           <Pressable onPress={() => openArtistByName && openArtistByName(typeof album.artist === 'object' ? album.artist?.name : album.artist)}>
             <Text style={[styles.albumArtist, { color: theme.secondaryText }]}>
               {typeof album.artist === 'object' ? album.artist?.name : album.artist}
+              {genres.length > 0 && ` • ${genres[0]}`}
             </Text>
           </Pressable>
         </View>
@@ -994,6 +1142,76 @@ export default function LibraryAlbumPage({ route, navigation }) {
               )}
             </View>
           )}
+
+          {/* Suggested Albums Section */}
+          {encourageDiscovery && suggestedAlbums.length > 0 && (
+            <View style={{ marginTop: 40, marginBottom: 20 }}>
+              <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Suggested albums to buy</Text>
+              
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingVertical: 16, paddingRight: 16 }}
+              >
+                {suggestedAlbums.map((suggestedAlbum, index) => (
+                  <Pressable
+                    key={suggestedAlbum.id || index}
+                    style={styles.suggestedAlbumCard}
+                    onPress={() => {
+                      // Create album object compatible with LibraryAlbumPage
+                      const newAlbum = {
+                        title: suggestedAlbum.name,
+                        name: suggestedAlbum.name,
+                        artist: suggestedAlbum.artist,
+                        artwork: suggestedAlbum.artwork,
+                        tracks: [], // Tracks will be fetched by the page
+                        key: `apple-suggested-${suggestedAlbum.id}`, // Unique key for caching
+                      };
+
+                      // Push new album page to stack
+                      navigation.push('LibraryAlbum', {
+                        ...route.params,
+                        album: newAlbum
+                      });
+                    }}
+                  >
+                    {suggestedAlbum.artwork ? (
+                      <Image 
+                        source={{ uri: suggestedAlbum.artwork }} 
+                        style={styles.suggestedAlbumArtwork}
+                      />
+                    ) : (
+                      <View style={[styles.suggestedAlbumArtwork, { backgroundColor: theme.card }]}>
+                        <Ionicons name="disc-outline" size={40} color={theme.secondaryText} />
+                      </View>
+                    )}
+                    <Text 
+                      style={[styles.suggestedAlbumTitle, { color: theme.primaryText }]} 
+                      numberOfLines={2}
+                    >
+                      {suggestedAlbum.name}
+                    </Text>
+                    <Text 
+                      style={[styles.suggestedAlbumArtist, { color: theme.secondaryText }]} 
+                      numberOfLines={1}
+                    >
+                      {suggestedAlbum.artist}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {loadingSuggestions && encourageDiscovery && (
+            <View style={{ marginTop: 40, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color={theme.primaryText} />
+              <Text style={[styles.sectionSubtitle, { color: theme.secondaryText, marginTop: 8 }]}>
+                Finding similar albums...
+              </Text>
+            </View>
+          )}
+
           <View style={{ height: 100 }} />
         </View>
       </>
@@ -1759,6 +1977,35 @@ const styles = StyleSheet.create({
   emptyPlaylists: {
     alignItems: 'center',
     paddingVertical: 60,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  suggestedAlbumCard: {
+    width: 180,
+    marginRight: 16,
+  },
+  suggestedAlbumArtwork: {
+    width: 180,
+    height: 180,
+    borderRadius: 8,
+    marginBottom: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  suggestedAlbumTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  suggestedAlbumArtist: {
+    fontSize: 12,
   },
   emptyText: {
     fontSize: 17,

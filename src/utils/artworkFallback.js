@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import Constants from 'expo-constants';
+import { SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET } from '../config/envConfig.js';
 
 /**
  * Artwork Fallback Utility
@@ -9,8 +10,6 @@ import Constants from 'expo-constants';
 
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SPOTIFY_SEARCH_URL = 'https://api.spotify.com/v1/search';
-const SPOTIFY_CLIENT_ID = '3b04b56282cf497fbc68c6bf8cb51438';
-const SPOTIFY_CLIENT_SECRET = 'b89842acfa4d4ec4ad55bdac57a1e4a2';
 
 const CACHE_DIR = `${FileSystem.documentDirectory}artwork_cache/`;
 const CACHE_VERSION_FILE = `${FileSystem.documentDirectory}artwork_cache/version.json`;

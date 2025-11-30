@@ -1,3 +1,5 @@
+import { SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET } from '../config/envConfig.js';
+
 export const SPARTDL_MODULE_CODE = `
 /**
  * SpartDL Module (Spotify Downloads via SpartDL API)
@@ -9,8 +11,8 @@ const SPARTDL_API_URLS = [
     'https://spartdl.fly.dev/get/audio-download-link'
 ];
 
-const SPOTIFY_CLIENT_ID = '3b04b56282cf497fbc68c6bf8cb51438';
-const SPOTIFY_CLIENT_SECRET = 'b89842acfa4d4ec4ad55bdac57a1e4a2';
+const SPOTIFY_CLIENT_ID = '${SPOTIFY_CLIENT_ID}';
+const SPOTIFY_CLIENT_SECRET = '${SPOTIFY_CLIENT_SECRET}';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SPOTIFY_SEARCH_URL = 'https://api.spotify.com/v1/search';
 

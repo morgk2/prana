@@ -18,8 +18,10 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
-import { getArtistTopTracks, getArtistTopAlbums, getArtistSingles, getAlbumInfo, getArtistInfo, getRelatedArtists } from '../api/lastfm';
+import { getArtistTopTracks, getArtistTopAlbums, getArtistSingles, getAlbumInfo, getArtistInfo } from '../api/lastfm';
+import { getAppleSimilarArtists, getAppleArtistTopTracks } from '../services/AppleMusicService';
 import * as FileSystem from 'expo-file-system/legacy';
+import { LinearGradient } from 'expo-linear-gradient';
 
 function pickImageUrl(images, preferredSize = 'large') {
   if (!Array.isArray(images)) return null;
@@ -217,6 +219,7 @@ export default function ArtistPage({ route, navigation }) {
   const [expandedTracks, setExpandedTracks] = useState(false);
   const [isCoverflow, setIsCoverflow] = useState(false);
   const [scrollEnabled, setScrollEnabled] = useState(true);
+  const [loadingRadio, setLoadingRadio] = useState(false);
 
   // Check if artist is already saved in the passed libraryArtists
   const isSavedInitially = libraryArtists.some(a => a.name === artist.name);
@@ -393,7 +396,7 @@ export default function ArtistPage({ route, navigation }) {
           getArtistTopAlbums(artist.name, { limit: 50 }),
           getArtistSingles(artist.name, { limit: 50 }),
           getArtistInfo(artist.name),
-          getRelatedArtists(artist.name, { limit: 10, artistId: artist.mbid }),
+          getAppleSimilarArtists(artist.name, 10),
         ]);
 
         setTopTracks(tracks ?? []);
@@ -589,6 +592,81 @@ export default function ArtistPage({ route, navigation }) {
     onTrackPress(localVersion || track);
   };
 
+  const handlePlayRadio = async () => {
+    if (loadingRadio) return;
+    setLoadingRadio(true);
+
+    try {
+      // 1. Pick ~4 random similar artists
+      const pool = [...similarArtists];
+      const pickedArtists = [];
+      while (pickedArtists.length < 4 && pool.length > 0) {
+        const randomIndex = Math.floor(Math.random() * pool.length);
+        pickedArtists.push(pool.splice(randomIndex, 1)[0]);
+      }
+
+      // 2. Fetch top tracks for main artist (if not already available) and similar artists
+      const mainArtistTracks = topTracks.length > 0 ? topTracks.slice(0, 5) : [];
+      
+      // We need the Apple ID for the main artist to fetch more if needed, but we might not have it handy
+      // if topTracks came from Last.fm initially. However, we used getAppleSimilarArtists which required searching.
+      // For now, we use what we have.
+
+      const promises = pickedArtists.map(a => getAppleArtistTopTracks(a.mbid, 5));
+      const similarTracksResults = await Promise.all(promises);
+
+      // 3. Combine and Shuffle
+      let radioQueue = [...mainArtistTracks];
+      similarTracksResults.forEach(tracks => {
+        radioQueue = [...radioQueue, ...tracks];
+      });
+
+      // Fisher-Yates Shuffle
+      for (let i = radioQueue.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [radioQueue[i], radioQueue[j]] = [radioQueue[j], radioQueue[i]];
+      }
+
+      // Ensure a track from the main artist is first (optional, but good UX)
+      const mainArtistIndex = radioQueue.findIndex(t => 
+        (t.artist?.name || t.artist) === artist.name
+      );
+      
+      if (mainArtistIndex > 0) {
+         const [first] = radioQueue.splice(mainArtistIndex, 1);
+         radioQueue.unshift(first);
+      }
+
+      if (radioQueue.length > 0) {
+        // Create a temporary playlist object
+        const radioPlaylist = {
+            id: `radio-${artist.mbid || artist.name}-${Date.now()}`,
+            name: `${artist.name} Radio`,
+            description: `Station based on ${artist.name} and similar artists`,
+            image: artistImageUrl, // Use artist image for playlist cover
+            tracks: radioQueue,
+            isRadio: true // Flag to maybe hide edit buttons if needed in PlaylistPage
+        };
+
+        navigation.push('PlaylistPage', {
+            playlist: radioPlaylist,
+            theme,
+            library,
+            onTrackPress,
+            addToLibrary,
+            openAlbumPage
+        });
+      } else {
+        console.warn("No tracks found for radio");
+      }
+
+    } catch (e) {
+      console.error("Error generating radio", e);
+    } finally {
+      setLoadingRadio(false);
+    }
+  };
+
   const renderContent = () => {
     if (loading) {
       return renderLoadingSkeleton();
@@ -717,6 +795,51 @@ export default function ArtistPage({ route, navigation }) {
           </View>
         )}
 
+        {/* Artist Radio */}
+        <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: theme.primaryText }]}>Artist Radio</Text>
+            <TouchableOpacity
+              onPress={handlePlayRadio}
+              disabled={loadingRadio}
+              style={{
+                width: 160,
+                height: 160,
+                borderRadius: 12,
+                overflow: 'hidden',
+                backgroundColor: theme.card,
+                justifyContent: 'center',
+                alignItems: 'center'
+              }}
+            >
+               {artistImageUrl ? (
+                   <ImageBackground
+                     source={{ uri: artistImageUrl }}
+                     style={{ width: '100%', height: '100%', justifyContent: 'flex-end' }}
+                     imageStyle={{ opacity: 0.8 }}
+                   >
+                     <LinearGradient
+                        colors={['transparent', 'rgba(0,0,0,0.8)']}
+                        style={{ padding: 12, width: '100%', alignItems: 'center', height: '100%', justifyContent: 'center' }}
+                     >
+                        {loadingRadio ? (
+                            <ActivityIndicator color="#fff" size="large" />
+                        ) : (
+                            <>
+                                <Ionicons name="radio-outline" size={32} color="#fff" style={{ marginBottom: 8 }} />
+                                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 18, letterSpacing: 1 }}>RADIO</Text>
+                            </>
+                        )}
+                     </LinearGradient>
+                   </ImageBackground>
+               ) : (
+                   <View style={{ alignItems: 'center' }}>
+                      <Ionicons name="radio-outline" size={32} color={theme.primaryText} />
+                      <Text style={{ color: theme.primaryText, marginTop: 8 }}>Start Radio</Text>
+                   </View>
+               )}
+            </TouchableOpacity>
+        </View>
+
         {/* Similar Artists */}
         {similarArtists.length > 0 && (
           <View style={styles.section}>
@@ -733,7 +856,7 @@ export default function ArtistPage({ route, navigation }) {
                     key={`similar-${simArtist.mbid || simArtist.name}-${index}`}
                     style={styles.similarArtistCard}
                     onPress={() => {
-                      navigation.push('ArtistPage', {
+                      navigation.push('Artist', {
                         artist: simArtist,
                         theme,
                         library,
