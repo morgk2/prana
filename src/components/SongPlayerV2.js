@@ -123,7 +123,12 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
             if (onSlidingComplete) onSlidingComplete(newValue);
         }
     };
-    const progress = maximumValue > 0 ? Math.min(1, Math.max(0, value / maximumValue)) : 0;
+    
+    let progressRatio = 0;
+    if (maximumValue > 0 && isFinite(value)) {
+        progressRatio = Math.min(1, Math.max(0, value / maximumValue));
+    }
+    
     return (
         <View
             style={{ height: 40, justifyContent: 'center' }}
@@ -148,7 +153,7 @@ function CustomSlider({ value, maximumValue, onSlidingStart, onValueChange, onSl
                     style={{
                         position: 'absolute',
                         left: 0,
-                        width: isLoading ? '100%' : `${progress * 100}%`,
+                        width: isLoading ? '100%' : `${progressRatio * 100}%`,
                         height: heightAnim,
                         backgroundColor: progressColor,
                         borderRadius: 999,
@@ -209,7 +214,8 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
         detail: '#ffffff',
     };
 
-    const progress = useProgress();
+    const progressState = useProgress();
+    const progress = progressState || { position: 0, duration: 0, buffered: 0 };
     const playbackState = usePlaybackState();
     const isPlaying = playbackState.state === State.Playing || playbackState.state === State.Buffering;
 
@@ -246,7 +252,7 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
 
     // Sync optimistic position
     useEffect(() => {
-        if (optimisticPosition !== null) {
+        if (optimisticPosition !== null && typeof progress.position === 'number') {
             const diff = Math.abs(progress.position - optimisticPosition);
             if (diff < 1.0) {
                 setOptimisticPosition(null);
@@ -455,30 +461,6 @@ export default function SongPlayerV2({ isVisible = true, track, onClose, onKill,
     const togglePlay = useCallback(async () => {
         if (isPlaying) {
             await TrackPlayer.pause();
-        } else {
-            await TrackPlayer.play();
-        }
-    }, [isPlaying]);
-
-    const skipNext = useCallback(() => {
-        if (!onTrackChange || !queue || queue.length === 0) return;
-        const nextIndex = queueIndex + 1;
-        if (nextIndex < queue.length) {
-            setIsTrackLoading(true);
-            // Animate artwork sliding left
-            Animated.timing(slideAnim, { toValue: -1, duration: 300, useNativeDriver: true }).start(() => {
-                onTrackChange(queue[nextIndex], nextIndex);
-                slideAnim.setValue(1);
-                type: LayoutAnimation.Types.easeInEaseOut,
-            },
-        });
-        setShowLyrics(!showLyrics);
-    };
-
-    const toggleShuffle = () => {
-        const newShuffleState = !isShuffleEnabled;
-        setIsShuffleEnabled(newShuffleState);
-        if (newShuffleState && queue.length > 1) {
             const currentTrack = queue[queueIndex];
             const otherTracks = queue.filter((_, idx) => idx !== queueIndex);
             for (let i = otherTracks.length - 1; i > 0; i--) {
